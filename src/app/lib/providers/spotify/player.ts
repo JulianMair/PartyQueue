@@ -16,6 +16,9 @@ export async function getCurrentTrack(): Promise<Track | null> {
     artist: data.item.artists.map((a: any) => a.name).join(", "),
     uri: data.item.uri,
     albumArt: data.item.album.images?.[0]?.url,
+    durationMs: data.item.duration_ms,
+    progressMs: data.progress_ms,
+    isplaying: data.is_playing,
   };
 }
 
