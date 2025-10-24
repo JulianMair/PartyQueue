@@ -34,9 +34,8 @@ export default function FooterPlayer() {
                     const data = await res.json();
                     cb(data.access_token);
                 },
-                volume: 0.7,
+                volume: 0.5,
             });
-
 
             // Player Events
             player.addListener("ready", ({ device_id }: any) => {
@@ -65,7 +64,6 @@ export default function FooterPlayer() {
                     isplaying: !state.paused,
                 });
             });
-
             player.connect();
             setPlayer(player);
         };
@@ -132,6 +130,7 @@ export default function FooterPlayer() {
         } else {
             await player.pause();
         }
+        
     };
 
     const handleNext = async () => {
@@ -141,7 +140,10 @@ export default function FooterPlayer() {
     const handlePrev = async () => {
         if (player) await player.previousTrack();
     };
-
+    const activatePlayer = async () => {
+        player.activateElement();
+    
+    };
     const formatTime = (ms: number) => {
         const totalSec = Math.floor(ms / 1000);
         const min = Math.floor(totalSec / 60);
@@ -214,8 +216,9 @@ export default function FooterPlayer() {
             </div>
 
             {/* Rechts */}
-            <div className="w-1/3 text-right text-sm text-gray-400">
+            <div onClick={activatePlayer} className="w-1/3 text-right text-sm text-gray-400">
                 {isReady ? "🟢 Verbunden" : "⚫️ Nicht verbunden"}
+                
             </div>
         </footer>
     );

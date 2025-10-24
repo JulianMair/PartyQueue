@@ -7,7 +7,9 @@ const SCOPES = [
 "user-modify-playback-state",
 "user-read-currently-playing",
 "streaming",
-"app-remote-control"
+"app-remote-control",
+"playlist-read-private",
+"playlist-read-collaborative",
 ].join(" ");
 
 export async function GET() {

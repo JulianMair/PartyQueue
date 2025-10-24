@@ -1,1 +1,37 @@
 @import "tailwindcss";
+
+
+html,
+body {
+  height: 100%;
+  overflow: hidden; /* 🚫 kein Scrollen der gesamten Seite */
+}
+
+:root { --footer-h: 6rem; } /* h-24 */
+
+/* Split gutter styling */
+.gutter {
+  background-color: #171717;
+  cursor: col-resize;
+  width: 6px;
+  transition: background-color 0.2s ease;
+}
+
+.gutter:hover {
+  background-color: #3f3f46;
+}
+
+
+/* globals.css oder styles.css */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-thumb {
+  background: #3f3f46; /* neutral-700 */
+  border-radius: 8px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #52525b; /* neutral-600 */
+}
+
+

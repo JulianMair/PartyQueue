@@ -7,10 +7,10 @@ interface HeaderProps {
 
 export default function Header({ username, onLogout }: HeaderProps) {
   return (
-    <header className="flex justify-between items-center px-6 py-3 bg-white border-b border-gray-200 shadow-sm">
-      <h1 className="text-xl font-bold">🎉 Party Dashboard</h1>
+    <header className="flex justify-between items-center px-6 py-3 bg-black border-b border-gray-200 shadow-sm">
+      <h1 className="text-xl font-bold text-gray-100">🎉 Party Dashboard</h1>
       <div className="flex items-center gap-4">
-        <span className="text-sm text-gray-600">
+        <span className="text-sm text-gray-400">
           Eingeloggt als <b>{username}</b>
         </span>
         <button
