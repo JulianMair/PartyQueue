@@ -1,0 +1,63 @@
+// app/lib/providers/spotify.ts
+import { MusicProvider, UserProfile, Track } from "../types";
+import { cookies } from "next/headers";
+
+export class SpotifyProvider implements MusicProvider {
+  
+  async getToken() {
+    const cookieStore = await cookies();
+    const token = cookieStore.get("spotify_access_token")?.value;
+    if (!token) throw new Error("No token");
+    return token;
+  }
+
+  async getMe(): Promise<UserProfile> {
+    const token = await this.getToken();
+    const res = await fetch("https://api.spotify.com/v1/me", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+    return { id: data.id, displayName: data.display_name, avatarUrl: data.images?.[0]?.url };
+  }
+
+  async getCurrentTrack(): Promise<Track | null> {
+    const token = await this.getToken();
+    const res = await fetch("https://api.spotify.com/v1/me/player/currently-playing", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.status === 204) return null;
+    const data = await res.json();
+    return {
+      id: data.item.id,
+      name: data.item.name,
+      artist: data.item.artists.map((a: any) => a.name).join(", "),
+      uri: data.item.uri,
+      albumArt: data.item.album.images?.[0]?.url,
+    };
+  }
+
+  async play(uri?: string) {
+    const token = await this.getToken();
+    await fetch("https://api.spotify.com/v1/me/player/play", {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: uri ? JSON.stringify({ uris: [uri] }) : undefined,
+    });
+  }
+
+  async pause() {
+    const token = await this.getToken();
+    await fetch("https://api.spotify.com/v1/me/player/pause", {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  }
+
+  async next() {
+    const token = await this.getToken();
+    await fetch("https://api.spotify.com/v1/me/player/next", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  }
+}
