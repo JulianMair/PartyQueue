@@ -16,12 +16,9 @@ export async function getCurrentTrack(): Promise<Track | null> {
     artist: data.item.artists.map((a: any) => a.name).join(", "),
     uri: data.item.uri,
     albumArt: data.item.album.images?.[0]?.url,
-<<<<<<< HEAD
     durationMs: data.item.duration_ms,
     progressMs: data.progress_ms,
     isplaying: data.is_playing,
-=======
->>>>>>> 3f5dd52 (Initial commit)
   };
 }
 
