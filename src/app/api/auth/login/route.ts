@@ -3,12 +3,18 @@ import { NextResponse } from "next/server";
 const CLIENT_ID = process.env.SPOTIFY_CLIENT_ID!;
 const REDIRECT_URI = process.env.SPOTIFY_REDIRECT_URI!;
 const SCOPES = [
+<<<<<<< HEAD
 "user-read-playback-state",
 "user-modify-playback-state",
 "user-read-currently-playing",
 "streaming",
 "app-remote-control"
 
+=======
+  "user-read-playback-state",
+  "user-modify-playback-state",
+  "user-read-currently-playing",
+>>>>>>> 3f5dd52 (Initial commit)
 ].join(" ");
 
 export async function GET() {

@@ -9,7 +9,10 @@
     "lint": "eslint"
   },
   "dependencies": {
+<<<<<<< HEAD
     "lucide-react": "^0.548.0",
+=======
+>>>>>>> 3f5dd52 (Initial commit)
     "next": "15.5.4",
     "react": "19.1.0",
     "react-dom": "19.1.0",

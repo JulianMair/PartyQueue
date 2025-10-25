@@ -10,9 +10,12 @@ export interface Track {
   artist: string;
   uri: string;
   albumArt?: string;
+<<<<<<< HEAD
   durationMs?: number;
   progressMs?: number;
   isplaying?: boolean;
+=======
+>>>>>>> 3f5dd52 (Initial commit)
 }
 
 export interface Playlist {
