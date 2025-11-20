@@ -1,12 +1,19 @@
-// app/api/party/vote/route.ts
+import { partyRegistry } from "@/app/lib/party/PartyRegistry";
 import { NextResponse } from "next/server";
-import { parties } from "../data";
 
 export async function POST(req: Request) {
-  const { partyId, songUri } = await req.json();
-  const party = parties.get(partyId);
-  if (!party) return NextResponse.json({ error: "Party not found" }, { status: 404 });
+  const { partyId, trackId, clientId } = await req.json();
 
-  party.votes[songUri] = (party.votes[songUri] || 0) + 1;
-  return NextResponse.json({ votes: party.votes });
+  if (!clientId) {
+    return NextResponse.json({ error: "clientId missing" }, { status: 400 });
+  }
+
+  const manager = partyRegistry.getParty(partyId);
+  if (!manager) {
+    return NextResponse.json({ error: "Party not found" }, { status: 404 });
+  }
+
+  await manager.vote(trackId, clientId);
+
+  return NextResponse.json({ success: true });
 }

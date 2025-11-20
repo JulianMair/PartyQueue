@@ -49,3 +49,47 @@ export async function next(): Promise<void> {
     headers: { Authorization: `Bearer ${token}` },
   });
 }
+export async function queueTrack(uri: string) {
+    const token = await getSpotifyToken();
+    await fetch(`https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(uri)}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+}
+export async function getCurrentPlayback() {
+  const token = await getSpotifyToken();
+  const res = await fetch("https://api.spotify.com/v1/me/player", {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+  });
+
+  console.log("Spotify /me/player status:", res.status);
+
+  if (res.status === 204) return null;
+  if (!res.ok) {
+    console.error("Spotify /me/player error:", await res.text());
+    return null;
+  }
+
+  return await res.json(); // hat: item, progress_ms, is_playing, etc.
+}
+
+export async function getQueue() {
+  const token = await getSpotifyToken();
+  const res = await fetch("https://api.spotify.com/v1/me/player/queue", {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+  });
+
+  if (!res.ok) {
+    console.error("Spotify /me/player/queue error:", await res.text());
+    return null;
+  }
+
+  return await res.json(); // hat: currently_playing, queue[]
+}
+

@@ -4,6 +4,19 @@ import * as Playlists from "./playlists";
 import { getSpotifyToken } from "./auth";
 
 export class SpotifyProvider implements MusicProvider {
+  async playTrackList(uris: string[]): Promise<void> {
+    const token = await getSpotifyToken();
+    await fetch("https://api.spotify.com/v1/me/player/play", {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        uris,
+      }),
+    });
+  }
   async getMe(): Promise<UserProfile> {
     const token = await getSpotifyToken();
     const res = await fetch("https://api.spotify.com/v1/me", {
@@ -21,6 +34,9 @@ export class SpotifyProvider implements MusicProvider {
   play = Player.play;
   pause = Player.pause;
   next = Player.next;
+  queueTrack = Player.queueTrack;
+  getCurrentPlayback = Player.getCurrentPlayback;
+  getQueue = Player.getQueue;
 
   getPlaylists = Playlists.getPlaylists;
   getPlaylistTracks = Playlists.getPlaylistTracks;

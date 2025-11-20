@@ -6,7 +6,6 @@ export async function GET() {
   try {
     const provider = getProvider("spotify"); // später dynamisch
     const playlists = await provider.getPlaylists();
-    console.log("Fetched playlists:", playlists);
     return NextResponse.json(playlists);
   } catch (error: any) {
     console.error("Error fetching playlists:", error);

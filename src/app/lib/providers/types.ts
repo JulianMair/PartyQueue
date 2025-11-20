@@ -15,6 +15,11 @@ export interface Track {
   isplaying?: boolean;
 }
 
+export interface PartyTrack extends Track {
+  votes: number;
+  addedAt: number;
+}
+
 export interface Playlist {
   id: string;
   name: string;
@@ -29,9 +34,14 @@ export interface MusicProvider {
   play(uri?: string): Promise<void>;
   pause(): Promise<void>;
   next(): Promise<void>;
+  queueTrack(uri: string): Promise<void>;
+  getCurrentPlayback(): Promise<any>;
+  playTrackList(uris: string[]): Promise<void>;
+  getQueue(): Promise<any>;
 
   // Playlist-Funktionen
   getPlaylists(): Promise<Playlist[]>;
-  getPlaylistTracks(playlistId: string): Promise<Track[]>;
+  getPlaylistTracks(playlistId: string, offset?: number, limit?: number): Promise<{ tracks: Track[]; next: string | null }>;
   playPlaylist(playlistId: string): Promise<void>;
+
 }

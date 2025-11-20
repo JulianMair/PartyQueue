@@ -1,22 +1,14 @@
-// app/api/party/create/route.ts
+// src/app/api/party/start/route.ts
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { parties, Party } from "../data";
-import { v4 as uuid } from "uuid";
+import { partyRegistry } from "@/app/lib/party/PartyRegistry";
 
 export async function POST() {
-  const cookieStore = await cookies();
-  const hostId = cookieStore.get("spotify_access_token")?.value; // besser Spotify-ID aus /me
-  if (!hostId) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  const partyId = crypto.randomUUID();
 
-  const partyId = uuid();
-  const newParty: Party = {
-    id: partyId,
-    hostId,
-    guests: [],
-    votes: {},
-  };
-  parties.set(partyId, newParty);
+  // aktuell nur Spotify
+  const manager = partyRegistry.createParty(partyId, "spotify");
+
+  await manager.startParty();
 
   return NextResponse.json({ partyId });
 }
