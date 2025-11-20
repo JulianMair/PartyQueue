@@ -17,7 +17,7 @@ export async function GET() {
     response_type: "code",
     client_id: CLIENT_ID,
     scope: SCOPES,
-    redirect_uri: encodeURIComponent(REDIRECT_URI),
+    redirect_uri: REDIRECT_URI,
   });
 
   console.log("➡️ REDIRECT_URI SENT TO SPOTIFY:", REDIRECT_URI);
