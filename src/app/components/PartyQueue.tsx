@@ -11,8 +11,9 @@ export default function PartyQueue() {
   const { partyId, setPartyId, isPartyActive, setIsPartyActive } = useParty();
   const [showQr, setShowQr] = useState(false);
   const [queue, setQueue] = useState<PartyTrack[]>([]);
+  const BASIC_URI = process.env.NEXT_PUBLIC_BASE_URL!;
 
-  const partyBaseUrl = "http://192.168.178.26:3000/party"; // später dynamisch aus ENV
+  const partyBaseUrl = `${BASIC_URI}/party`; // später dynamisch aus ENV
 
   // Party starten (Backend ruft SpotifyProvider über Factory auf)
   async function handleStartParty() {
