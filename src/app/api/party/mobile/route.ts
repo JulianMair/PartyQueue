@@ -23,12 +23,6 @@ export async function GET(req: Request) {
   }
 
   const state = party.getState();
-  console.log(
-    "[/api/party/mobile] Party gefunden:",
-    partyId,
-    "Queue-Länge:",
-    state.queue.length
-  );
 
   // Nur Top 10 aus deiner PartyQueue
   const top10 = state.queue.slice(0, 10);

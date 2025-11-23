@@ -49,23 +49,6 @@ export default function PartyQueue() {
     return () => clearInterval(interval);
   }, [partyId]);
 
-  const handleVote = async (trackId: string) => {
-  if (!partyId) return;
-  try {
-    const res = await fetch("/api/party/vote", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ partyId, trackId }),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      setQueue(data.queue);
-    }
-  } catch (err) {
-    console.error("Fehler beim Voten:", err);
-  }
-};
-
   const handleShowQr = () => setShowQr((prev) => !prev);
 
   const partyUrl = partyId ? `${partyBaseUrl}/${partyId}/vote` : "";
@@ -123,7 +106,6 @@ export default function PartyQueue() {
               <div className="flex items-center gap-2">
                 <span className="text-sm text-gray-400">{track.votes ?? 0} </span>
                 <button
-                  onClick={() => handleVote(track.id)}
                   className="text-sm text-gray-300 hover:text-white transition"
                 >
                   👍
