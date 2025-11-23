@@ -88,7 +88,7 @@ export default function MobileVotePage({ params }: { params: Promise<{ id: strin
 
   useEffect(() => {
     load();
-    const timer = setInterval(load, 3000);
+    const timer = setInterval(load, 1000);
     return () => clearInterval(timer);
   }, [partyId]);
 

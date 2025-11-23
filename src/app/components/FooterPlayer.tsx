@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Play, Pause, SkipForward, SkipBack } from "lucide-react";
 import { Track } from "../lib/providers/types";
+import { useParty } from "@/app/context/PartyContext";
 
 declare global {
   interface Window {
@@ -17,6 +18,7 @@ export default function FooterPlayer() {
   const [track, setTrack] = useState<Track | null>(null);
   const [isReady, setIsReady] = useState(false);
   const [isConnecting, setIsConnecting] = useState(true);
+  const { partyId } = useParty();
 
   // Spotify Script laden
   useEffect(() => {
@@ -190,9 +192,11 @@ export default function FooterPlayer() {
 
   const handleNext = async () => {
     try {
-      const state = await getPlayerState();
-      if (!state) return;
-      await player.nextTrack();
+      const res = await fetch("/api/party/next", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ partyId }),
+      });
     } catch (err) {
       console.error("Next-Fehler:", err);
     }

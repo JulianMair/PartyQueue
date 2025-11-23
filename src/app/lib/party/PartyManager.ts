@@ -101,7 +101,7 @@ async vote(trackId: string, clientId: string) {
   }
 
   /** STARTE DEN NÄCHSTEN TRACK SOFORT */
-  private async playNextTrack() {
+  public async playNextTrack() {
     if (this.state.queue.length === 0) return;
 
     const next = this.state.queue.shift()!;

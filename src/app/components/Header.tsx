@@ -5,6 +5,10 @@ interface HeaderProps {
   onLogout?: () => void;
 }
 
+
+
+
+
 export default function Header({ username, onLogout }: HeaderProps) {
   return (
     <header className="flex justify-between items-center px-6 py-3 bg-black border-b border-gray-200 shadow-sm">
