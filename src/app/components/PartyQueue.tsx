@@ -7,30 +7,131 @@ import { useParty } from "@/app/context/PartyContext";
 // Beispiel: src/app/lib/types/track.ts
 import type { PartyTrack } from "../lib/providers/types";
 
+interface PartyListItem {
+  partyId: string;
+  name: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export default function PartyQueue() {
   const { partyId, setPartyId, isPartyActive, setIsPartyActive } = useParty();
   const [showQr, setShowQr] = useState(false);
   const [queue, setQueue] = useState<PartyTrack[]>([]);
+  const [parties, setParties] = useState<PartyListItem[]>([]);
+  const [newPartyName, setNewPartyName] = useState("");
+  const [isBusy, setIsBusy] = useState(false);
   const BASIC_URI = process.env.NEXT_PUBLIC_BASE_URL!;
 
   const partyBaseUrl = `${BASIC_URI}/party`; // später dynamisch aus ENV
 
-  // Party starten (Backend ruft SpotifyProvider über Factory auf)
-  async function handleStartParty() {
-    const res = await fetch("/api/party/create", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-    });
-
-    if (!res.ok) {
-      console.error("Party konnte nicht gestartet werden");
-      return;
-    }
-
+  const fetchParties = async () => {
+    const res = await fetch("/api/party/list", { cache: "no-store" });
+    if (!res.ok) return;
     const data = await res.json();
-    setPartyId(data.partyId);
-    setIsPartyActive(true);
+    setParties(Array.isArray(data.parties) ? data.parties : []);
+  };
+
+  // Party starten (Backend ruft SpotifyProvider über Factory auf)
+  async function handleCreateParty() {
+    setIsBusy(true);
+    try {
+      const res = await fetch("/api/party/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newPartyName || undefined }),
+      });
+
+      if (!res.ok) {
+        console.error("Party konnte nicht gestartet werden");
+        return;
+      }
+
+      const data = await res.json();
+      setPartyId(data.partyId);
+      setIsPartyActive(true);
+      setNewPartyName("");
+      await fetchParties();
+    } finally {
+      setIsBusy(false);
+    }
   }
+
+  async function handleLoadParty(targetPartyId: string) {
+    setIsBusy(true);
+    try {
+      const res = await fetch("/api/party/load", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ partyId: targetPartyId }),
+      });
+
+      if (!res.ok) {
+        console.error("Party konnte nicht geladen werden");
+        return;
+      }
+
+      const data = await res.json();
+      setPartyId(targetPartyId);
+      setIsPartyActive(Boolean(data?.party?.isActive));
+      setQueue(Array.isArray(data?.party?.queue) ? data.party.queue : []);
+      await fetchParties();
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function handleDeleteParty(targetPartyId: string) {
+    setIsBusy(true);
+    try {
+      const res = await fetch("/api/party/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ partyId: targetPartyId }),
+      });
+
+      if (!res.ok) {
+        console.error("Party konnte nicht gelöscht werden");
+        return;
+      }
+
+      if (partyId === targetPartyId) {
+        setPartyId(null);
+        setIsPartyActive(false);
+        setQueue([]);
+      }
+
+      await fetchParties();
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  // Queue regelmäßig vom Server abholen (später WebSocket/SSE)
+  useEffect(() => {
+    if (partyId) return;
+
+    const hydrateActiveParty = async () => {
+      const res = await fetch("/api/party/active");
+      if (!res.ok) return;
+
+      const data = await res.json();
+      if (!data?.partyId) return;
+
+      setPartyId(data.partyId);
+      setIsPartyActive(Boolean(data.isActive));
+      if (Array.isArray(data.queue)) {
+        setQueue(data.queue);
+      }
+    };
+
+    hydrateActiveParty();
+  }, [partyId, setIsPartyActive, setPartyId]);
+
+  useEffect(() => {
+    fetchParties();
+  }, []);
 
   // Queue regelmäßig vom Server abholen (später WebSocket/SSE)
   useEffect(() => {
@@ -59,23 +160,64 @@ export default function PartyQueue() {
       <div className="sticky top-0 z-10 pb-3 mb-4 border-b border-neutral-800 bg-neutral-950">
         <h2 className="text-lg font-semibold text-white">🎉 Party Queue</h2>
 
-        <div className="flex gap-2 mt-3">
-          {!isPartyActive ? (
+        <div className="mt-3 space-y-3">
+          <div className="flex gap-2">
+            <input
+              value={newPartyName}
+              onChange={(e) => setNewPartyName(e.target.value)}
+              placeholder="Party-Name (optional)"
+              className="flex-1 px-3 py-2 bg-neutral-900 border border-neutral-700 rounded-lg text-sm text-gray-100 placeholder:text-gray-500"
+            />
             <button
-              onClick={handleStartParty}
-              className="px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg text-white text-sm"
+              onClick={handleCreateParty}
+              disabled={isBusy}
+              className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:opacity-60 rounded-lg text-white text-sm"
             >
-              Party starten
+              Neue Party
             </button>
-          ) : (
-            <>
+          </div>
+
+          <div className="space-y-2 max-h-32 overflow-y-auto pr-1">
+            {parties.length === 0 ? (
+              <p className="text-xs text-gray-500">Keine gespeicherten Partys</p>
+            ) : (
+              parties.map((party) => (
+                <div
+                  key={party.partyId}
+                  className="flex items-center justify-between gap-2 bg-neutral-900 border border-neutral-800 rounded-md px-2 py-1.5"
+                >
+                  <button
+                    onClick={() => handleLoadParty(party.partyId)}
+                    disabled={isBusy}
+                    className={`text-left text-sm truncate flex-1 ${
+                      party.partyId === partyId
+                        ? "text-green-400"
+                        : "text-gray-200 hover:text-white"
+                    }`}
+                  >
+                    {party.name}
+                  </button>
+                  <button
+                    onClick={() => handleDeleteParty(party.partyId)}
+                    disabled={isBusy}
+                    className="text-xs px-2 py-1 rounded bg-red-700 hover:bg-red-800 text-white disabled:opacity-60"
+                  >
+                    Löschen
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+
+          {isPartyActive && (
+            <div className="flex gap-2">
               <button
                 onClick={handleShowQr}
                 className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-white text-sm"
               >
                 QR-Code anzeigen
               </button>
-            </>
+            </div>
           )}
         </div>
       </div>

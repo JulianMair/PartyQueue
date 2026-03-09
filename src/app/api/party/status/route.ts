@@ -1,13 +1,35 @@
 // app/api/party/status/route.ts
 import { NextResponse } from "next/server";
-import { parties } from "../data";
+import { partyRegistry } from "@/app/lib/party/PartyRegistry";
 
 export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url);
-  const partyId = searchParams.get("partyId");
+  try {
+    const { searchParams } = new URL(req.url);
+    const partyId = searchParams.get("partyId");
 
-  const party = partyId ? parties.get(partyId) : null;
-  if (!party) return NextResponse.json({ error: "Party not found" }, { status: 404 });
+    if (!partyId) {
+      return NextResponse.json({ error: "partyId ist erforderlich" }, { status: 400 });
+    }
 
-  return NextResponse.json({ party });
+    const party = await partyRegistry.getParty(partyId);
+    if (!party) {
+      return NextResponse.json({ error: "Party not found" }, { status: 404 });
+    }
+
+    const state = party.getState();
+    const meta = await partyRegistry.getPartyMetadata(partyId);
+
+    return NextResponse.json({
+      party: {
+        partyId: state.id,
+        name: meta?.name ?? state.id,
+        isActive: state.isActive,
+        currentTrack: state.currentTrack ?? null,
+        queue: state.queue,
+      },
+    });
+  } catch (err) {
+    console.error("Party status error:", err);
+    return NextResponse.json({ error: "Failed to fetch party status" }, { status: 500 });
+  }
 }

@@ -16,20 +16,56 @@ export class PartyManager extends EventEmitter {
   private voted: Map<string, Set<string>> = new Map();
 
 
-  constructor(partyId: string, provider: MusicProvider) {
+  constructor(
+    partyId: string,
+    provider: MusicProvider,
+    initialState?: Partial<PartyState>,
+    initialVotedByClient?: Record<string, string[]>
+  ) {
     super();
-    this.state = { id: partyId, queue: [], isActive: false };
+    this.state = {
+      id: partyId,
+      queue: initialState?.queue ?? [],
+      currentTrack: initialState?.currentTrack,
+      isActive: initialState?.isActive ?? false,
+    };
     this.provider = provider;
+    if (initialVotedByClient) {
+      this.voted = new Map(
+        Object.entries(initialVotedByClient).map(([clientId, trackIds]) => [
+          clientId,
+          new Set(trackIds),
+        ])
+      );
+    }
   }
 
   getState() {
     return this.state;
   }
 
+  getVotedByClient() {
+    return Object.fromEntries(
+      Array.from(this.voted.entries()).map(([clientId, tracks]) => [
+        clientId,
+        Array.from(tracks),
+      ])
+    );
+  }
+
+  private toPartyTrack(track: Track): PartyTrack {
+    return {
+      ...track,
+      votes: 0,
+      addedAt: Date.now(),
+    };
+  }
+
   async startParty() {
     this.state.isActive = true;
     this.startSync();
     this.emit("partyStarted", this.state);
+    this.emit("stateChanged", this.state);
     console.log(`[PartyManager] Party ${this.state.id} gestartet`);
   }
 
@@ -37,22 +73,57 @@ export class PartyManager extends EventEmitter {
     this.state.isActive = false;
     if (this.syncInterval) clearInterval(this.syncInterval);
     this.syncInterval = null;
+    this.emit("stateChanged", this.state);
     console.log(`[PartyManager] Party ${this.state.id} gestoppt`);
   }
 
   /** SONG ZUR PARTYQUEUE HINZUFÜGEN (nur intern!) */
   async addTrack(track: Track) {
-    const partyTrack: PartyTrack = {
-      ...track,
-      votes: 0,
-      addedAt: Date.now(),
-    };
+    await this.addTracks([track]);
+  }
 
-    this.state.queue.push(partyTrack);
+  /** MEHRERE SONGS ZUR PARTYQUEUE HINZUFÜGEN (nur intern!) */
+  async addTracks(tracks: Track[]) {
+    const validTracks = tracks.filter((track) => track?.id && track?.uri);
+    if (validTracks.length === 0) return;
+
+    const now = Date.now();
+    const partyTracks: PartyTrack[] = validTracks.map((track, index) => ({
+      ...this.toPartyTrack(track),
+      addedAt: now + index,
+    }));
+
+    this.state.queue.push(...partyTracks);
     this.sortQueue();
     this.emit("queueUpdated", this.state.queue);
+    this.emit("stateChanged", this.state);
 
-    console.log(`[PartyManager] Track hinzugefügt: ${partyTrack.name}`);
+    console.log(`[PartyManager] ${partyTracks.length} Tracks hinzugefügt`);
+  }
+
+  /** GANZE PLAYLIST ÜBER PROVIDER EINLESEN UND INTERN EINREIHEN */
+  async addPlaylist(playlistId: string) {
+    const allTracks: Track[] = [];
+    const limit = 100;
+    let offset = 0;
+    let hasMore = true;
+
+    while (hasMore) {
+      const { tracks, next } = await this.provider.getPlaylistTracks(
+        playlistId,
+        offset,
+        limit
+      );
+
+      if (tracks.length === 0) break;
+
+      allTracks.push(...tracks);
+      offset += limit;
+      hasMore = Boolean(next);
+    }
+
+    await this.addTracks(allTracks);
+    return allTracks.length;
   }
 
   /** VOTING → beeinflusst NUR die interne Queue */
@@ -80,6 +151,7 @@ async vote(trackId: string, clientId: string) {
   track.votes++;
   this.sortQueue();
   this.emit("queueUpdated", this.state.queue);
+  this.emit("stateChanged", this.state);
 
   console.log(`Vote akzeptiert: ${track.name} (${track.votes})`);
 }
@@ -105,13 +177,15 @@ async vote(trackId: string, clientId: string) {
     if (this.state.queue.length === 0) return;
 
     const next = this.state.queue.shift()!;
+    
     this.state.currentTrack = next;
 
-
+    this.voted.forEach((tracks) => tracks.delete(next.id));
 
     await this.provider.play(next.uri);
     this.emit("trackStarted", next);
     this.emit("queueUpdated", this.state.queue);
+    this.emit("stateChanged", this.state);
 
     console.log(`[PartyManager] Spiele nächsten Track: ${next.name}`);
   }
@@ -161,6 +235,7 @@ async vote(trackId: string, clientId: string) {
 
         this.emit("trackStarted", newTrack);
         this.emit("queueUpdated", this.state.queue);
+        this.emit("stateChanged", this.state);
       }
 
       // FALL 3: Ist der Song bald vorbei? (letzte 5 Sekunden)

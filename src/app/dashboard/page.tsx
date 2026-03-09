@@ -9,21 +9,10 @@ import { useEffect } from "react";
 import PlaylistTracks from "@/app/components/PlaylistTracks";
 import PartyQueue from "@/app/components/PartyQueue";
 import Split from "react-split";
-import { Track } from "@/app/lib/providers/types";
 
 export default function DashboardPage() {
   const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
-
-  useEffect(() => {
-    const script = document.createElement("script");
-    script.src = "https://sdk.scdn.co/spotify-player.js";
-    script.async = true;
-    document.body.appendChild(script);
-  }, []);
-
-
-
 
   const fetchPlaylists = async () => {
     try {
@@ -86,4 +75,3 @@ export default function DashboardPage() {
     </div>
   );
 }
-

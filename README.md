@@ -1,39 +1,83 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# PartyQueue
 
-## Getting Started
+PartyQueue ist eine Spotify-basierte Party-Voting-App.
 
-First, run the development server:
+Ein Host startet eine Party, zeigt einen QR-Code an und Gäste können über eine mobile Voting-Seite Songs upvoten. Die interne PartyQueue ist die Quelle der Wahrheit. Spotify wird nur als Abspielsystem verwendet.
+
+## Hauptfunktionen
+
+- Host-Dashboard
+- Spotify-Login
+- Playlist-Auswahl
+- Songs zur PartyQueue hinzufügen
+- Mobile Voting per QR-Code
+- Pro Gerät nur ein Vote pro Song
+- Top-10-Voting-Liste für mobile Geräte
+- Docker-Deployment für Unraid
+- CI/CD über GitHub Actions + Docker Hub
+
+## Tech-Stack
+
+- Next.js 15
+- TypeScript
+- Tailwind CSS
+- Spotify Web API
+- Docker
+- Unraid
+- GitHub Actions
+- MongoDB (externer Container)
+
+## Projektstruktur
+
+- `src/app/lib/party/PartyManager.ts`  
+  Zentrale Party- und Queue-Logik
+
+- `src/app/lib/providers/`  
+  Musikprovider-Architektur, aktuell Spotify
+
+- `src/app/api/auth/`  
+  Spotify OAuth Login, Callback, Token-Refresh
+
+- `src/app/party/[id]/vote/page.tsx`  
+  Mobile Voting-Seite
+
+## Lokale Entwicklung
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Persistente Party-Verwaltung (MongoDB)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Partys und Queue-Daten werden persistent in MongoDB gespeichert.
+Die interne `PartyQueue` im `PartyManager` bleibt die Quelle der Wahrheit.
+`PartyRegistry` bleibt als Runtime-Cache aktiv und synchronisiert Änderungen in MongoDB.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### Datenmodell (vereinfacht)
 
-## Learn More
+Collection: `parties`
 
-To learn more about Next.js, take a look at the following resources:
+- `partyId` (string, unique)
+- `name` (string)
+- `providerName` (string, aktuell `spotify`)
+- `isActive` (boolean)
+- `createdAt`, `updatedAt` (Date)
+- `state` (PartyState inkl. `queue`, `currentTrack`, `isActive`)
+- `votedByClient` (Record `<clientId, trackIds[]>`)
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Damit ist die Struktur bereits geeignet, um große PartyQueues inkl. aus Playlists importierter Tracks zu speichern.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### Relevante API-Endpunkte
 
-## Deploy on Vercel
+- `POST /api/party/create` Party erstellen (und aktivieren)
+- `GET /api/party/list` Partys auflisten
+- `POST /api/party/load` Party laden/aktivieren
+- `POST /api/party/delete` Party löschen
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### ENV für externe MongoDB
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Siehe `.env.example`:
 
-
-git test
+- `MONGODB_URI` (Pflicht)
+- `MONGODB_DB_NAME` (optional, default `partyqueue`)

@@ -1,15 +1,17 @@
 import { NextResponse } from "next/server";
 import { partyRegistry } from "@/app/lib/party/PartyRegistry";
-import type { Track } from "@/app/lib/providers/types";
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { partyId, track } = body as { partyId: string; track: Track };
+    const { partyId, playlistId } = body as {
+      partyId: string;
+      playlistId: string;
+    };
 
-    if (!partyId || !track) {
+    if (!partyId || !playlistId) {
       return NextResponse.json(
-        { error: "partyId und track sind erforderlich" },
+        { error: "partyId und playlistId sind erforderlich" },
         { status: 400 }
       );
     }
@@ -22,18 +24,18 @@ export async function POST(req: Request) {
       );
     }
 
-    // Track hinzufügen
-    await party.addTrack(track);
-
+    const addedCount = await party.addPlaylist(playlistId);
     const state = party.getState();
+
     return NextResponse.json({
       success: true,
+      addedCount,
       queue: state.queue,
     });
   } catch (err) {
-    console.error("Fehler beim Hinzufügen des Songs:", err);
+    console.error("Fehler beim Hinzufügen der Playlist:", err);
     return NextResponse.json(
-      { error: "Fehler beim Hinzufügen des Songs" },
+      { error: "Fehler beim Hinzufügen der Playlist" },
       { status: 500 }
     );
   }

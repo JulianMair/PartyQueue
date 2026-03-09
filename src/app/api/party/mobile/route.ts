@@ -12,7 +12,7 @@ export async function GET(req: Request) {
     );
   }
 
-  const party = partyRegistry.getParty(partyId);
+  const party = await partyRegistry.getParty(partyId);
 
   if (!party) {
     console.log("[/api/party/mobile] Keine Party gefunden für ID:", partyId);

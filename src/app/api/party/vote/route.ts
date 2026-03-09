@@ -8,7 +8,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "clientId missing" }, { status: 400 });
   }
 
-  const manager = partyRegistry.getParty(partyId);
+  const manager = await partyRegistry.getParty(partyId);
   if (!manager) {
     return NextResponse.json({ error: "Party not found" }, { status: 404 });
   }

@@ -13,7 +13,7 @@ export async function GET(req: Request) {
       );
     }
 
-    const party = partyRegistry.getParty(partyId);
+    const party = await partyRegistry.getParty(partyId);
     if (!party) {
       return NextResponse.json(
         { error: `Keine aktive Party mit ID ${partyId} gefunden` },

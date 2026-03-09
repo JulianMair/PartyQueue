@@ -1,7 +1,6 @@
 
 import { NextResponse } from "next/server";
 import { partyRegistry } from "@/app/lib/party/PartyRegistry";
-import type { Track } from "@/app/lib/providers/types";
 
 export async function POST(req: Request) {
     const body = await req.json();
@@ -14,7 +13,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const party = partyRegistry.getParty(partyId);
+    const party = await partyRegistry.getParty(partyId);
     if (!party) {
       return NextResponse.json(
         { error: `Keine Party mit ID ${partyId} gefunden` },
@@ -25,5 +24,4 @@ export async function POST(req: Request) {
     // Track hinzufügen
     await party.playNextTrack();
     return NextResponse.json({ success: true });
- //alsdjfl
 }

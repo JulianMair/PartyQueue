@@ -16,6 +16,8 @@ export default function PlaylistTracks({ playlist }: PlaylistTracksProps) {
   const [hasMore, setHasMore] = useState(true);
   const observer = useRef<IntersectionObserver | null>(null);
   const [addingTrack, setAddingTrack] = useState<string | null>(null); // 🔹 für Ladezustand beim Hinzufügen
+  const [addingPlaylist, setAddingPlaylist] = useState(false);
+  const [playlistAddMessage, setPlaylistAddMessage] = useState<string | null>(null);
   const { partyId, isPartyActive } = useParty();
 
   // --- EXISTIERENDE useCallback fetchTracks() ---
@@ -108,6 +110,35 @@ export default function PlaylistTracks({ playlist }: PlaylistTracksProps) {
     }
   };
 
+  const addPlaylistToParty = async () => {
+    if (!playlist?.id) return;
+    if (!partyId) {
+      alert("Keine aktive Party gefunden!");
+      return;
+    }
+
+    setAddingPlaylist(true);
+    setPlaylistAddMessage(null);
+
+    try {
+      const res = await fetch("/api/party/add-playlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ partyId, playlistId: playlist.id }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Fehler beim Hinzufügen der Playlist");
+
+      setPlaylistAddMessage(`${data.addedCount ?? 0} Songs zur Party hinzugefügt`);
+    } catch (err) {
+      console.error(err);
+      setPlaylistAddMessage("Fehler beim Hinzufügen der Playlist");
+    } finally {
+      setAddingPlaylist(false);
+    }
+  };
+
   const formatDuration = (ms: number) => {
     const totalSec = Math.floor(ms / 1000);
     const min = Math.floor(totalSec / 60);
@@ -124,6 +155,26 @@ export default function PlaylistTracks({ playlist }: PlaylistTracksProps) {
 
   return (
     <div className="h-full overflow-y-auto scrollbar-thin scrollbar-thumb-neutral-700 scrollbar-track-neutral-900 pr-2">
+      <div className="sticky top-0 z-10 pb-3 mb-3 border-b border-neutral-800 bg-neutral-950">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-sm text-gray-400 truncate">{playlist.name}</p>
+          <button
+            onClick={addPlaylistToParty}
+            disabled={!isPartyActive || addingPlaylist}
+            className={`px-3 py-1 text-sm rounded-md transition ${
+              !isPartyActive || addingPlaylist
+                ? "bg-green-800 text-gray-300 cursor-not-allowed"
+                : "bg-green-600 hover:bg-green-700 text-white"
+            }`}
+          >
+            {addingPlaylist ? "⏳ Playlist wird hinzugefügt..." : "➕ Ganze Playlist zur Party"}
+          </button>
+        </div>
+        {playlistAddMessage && (
+          <p className="text-xs text-gray-400 mt-2">{playlistAddMessage}</p>
+        )}
+      </div>
+
       <ul className="space-y-2">
         {tracks.map((track, i) => (
           <li
