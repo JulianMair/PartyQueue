@@ -5,11 +5,15 @@ import { Music } from "lucide-react";
 
 interface PlaylistSidebarProps {
   playlists: Playlist[];
-  onSelect: (playlist: string) => void;
+  onSelect: (playlist: Playlist | null) => void;
   forceExpanded?: boolean;
 }
 
-export default function PlaylistSidebar({ playlists, onSelect, forceExpanded = false }: any) {
+export default function PlaylistSidebar({
+  playlists,
+  onSelect,
+  forceExpanded = false,
+}: PlaylistSidebarProps) {
   const [isCompact, setIsCompact] = useState(false);
 
   // erkennt Bildschirmgröße
@@ -58,11 +62,11 @@ useEffect(() => {
       {/* Playlist-Liste */}
       <ul
         className={`
-          flex-1 overflow-y-auto p-2 space-y-1 transition-all duration-300
+          flex-1 overflow-y-auto overscroll-contain p-2 space-y-1 transition-all duration-300
           ${isCompact ? "px-1" : "px-3"}
         `}
       >
-        {playlists.map((pl: any) => (
+        {playlists.map((pl) => (
           <li
             key={pl.id}
             onClick={() => onSelect(pl)}
@@ -70,7 +74,7 @@ useEffect(() => {
               flex items-center gap-3
               hover:bg-neutral-800 
               rounded-md 
-              p-2 cursor-pointer 
+              p-2.5 min-h-14 cursor-pointer 
               transition-colors
             "
           >

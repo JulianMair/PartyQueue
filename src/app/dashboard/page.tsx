@@ -48,6 +48,12 @@ export default function DashboardPage() {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
+  useEffect(() => {
+    if (isMobileLayout && activePane === "tracks" && !selectedPlaylist) {
+      setActivePane("queue");
+    }
+  }, [activePane, isMobileLayout, selectedPlaylist]);
+
   return (
     <div className="flex flex-col h-[100dvh] bg-neutral-950 text-gray-100 overflow-hidden">
       {/* Header */}
@@ -59,12 +65,12 @@ export default function DashboardPage() {
       <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
         {isTabletLayout ? (
           <>
-            <div className={`${isMobileLayout ? "px-2 pt-2" : "px-3 pt-2"} shrink-0`}>
+            <div className={`${isMobileLayout ? "px-2 pt-2" : "px-3 pt-2"} shrink-0 sticky top-0 z-10 bg-neutral-950/95 backdrop-blur`}>
               <div className="grid grid-cols-3 gap-2 bg-neutral-900 border border-neutral-800 rounded-lg p-1">
                 <button
                   onClick={() => setActivePane("playlists")}
                   className={`${
-                    isMobileLayout ? "px-2 py-2 text-xs" : "px-3 py-2 text-sm"
+                    isMobileLayout ? "px-2 py-2.5 text-sm min-h-11" : "px-3 py-2.5 text-sm min-h-11"
                   } rounded-md transition ${
                     activePane === "playlists"
                       ? "bg-neutral-700 text-white"
@@ -76,7 +82,7 @@ export default function DashboardPage() {
                 <button
                   onClick={() => setActivePane("tracks")}
                   className={`${
-                    isMobileLayout ? "px-2 py-2 text-xs" : "px-3 py-2 text-sm"
+                    isMobileLayout ? "px-2 py-2.5 text-sm min-h-11" : "px-3 py-2.5 text-sm min-h-11"
                   } rounded-md transition ${
                     activePane === "tracks"
                       ? "bg-neutral-700 text-white"
@@ -88,7 +94,7 @@ export default function DashboardPage() {
                 <button
                   onClick={() => setActivePane("queue")}
                   className={`${
-                    isMobileLayout ? "px-2 py-2 text-xs" : "px-3 py-2 text-sm"
+                    isMobileLayout ? "px-2 py-2.5 text-sm min-h-11" : "px-3 py-2.5 text-sm min-h-11"
                   } rounded-md transition ${
                     activePane === "queue"
                       ? "bg-neutral-700 text-white"
@@ -161,7 +167,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Footer */}
-      <footer className={`${isMobileLayout ? "h-16" : "h-20 md:h-24"} border-t border-neutral-800 shrink-0 bg-neutral-950/95 backdrop-blur pb-[env(safe-area-inset-bottom)]`}>
+      <footer className={`${isMobileLayout ? "h-[72px]" : "h-20 md:h-24"} border-t border-neutral-800 shrink-0 bg-neutral-950/95 backdrop-blur pb-[env(safe-area-inset-bottom)]`}>
         <FooterPlayer />
       </footer>
     </div>

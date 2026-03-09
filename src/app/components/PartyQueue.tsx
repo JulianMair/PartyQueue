@@ -230,12 +230,12 @@ export default function PartyQueue() {
               value={newPartyName}
               onChange={(e) => setNewPartyName(e.target.value)}
               placeholder="Party-Name (optional)"
-              className="flex-1 px-3 py-2 bg-neutral-900 border border-neutral-700 rounded-lg text-sm text-gray-100 placeholder:text-gray-500"
+              className="flex-1 px-3 py-2.5 bg-neutral-900 border border-neutral-700 rounded-lg text-sm text-gray-100 placeholder:text-gray-500"
             />
             <button
               onClick={handleCreateParty}
               disabled={isBusy}
-              className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:opacity-60 rounded-lg text-white text-sm"
+              className="px-4 py-2.5 min-h-11 bg-green-600 hover:bg-green-700 disabled:opacity-60 rounded-lg text-white text-sm"
             >
               Neue Party
             </button>
@@ -264,7 +264,7 @@ export default function PartyQueue() {
                   <button
                     onClick={() => handleDeleteParty(party.partyId)}
                     disabled={isBusy}
-                    className="text-xs px-2 py-1 rounded bg-red-700 hover:bg-red-800 text-white disabled:opacity-60"
+                    className="text-xs px-3 py-1.5 min-h-9 rounded bg-red-700 hover:bg-red-800 text-white disabled:opacity-60"
                   >
                     Löschen
                   </button>
@@ -277,7 +277,7 @@ export default function PartyQueue() {
             <div className="flex gap-2">
               <button
                 onClick={handleShowQr}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-white text-sm"
+                className="px-4 py-2.5 min-h-11 bg-blue-600 hover:bg-blue-700 rounded-lg text-white text-sm"
               >
                 QR-Code anzeigen
               </button>
@@ -287,7 +287,7 @@ export default function PartyQueue() {
       </div>
 
       {/* Queue */}
-      <ul className="space-y-2 overflow-y-auto pb-28">
+      <ul className="space-y-2 overflow-y-auto overscroll-contain pb-28">
         {queue.length === 0 ? (
           <p className="text-gray-400 text-sm text-center">Noch keine Songs in der Queue 🎵</p>
         ) : (
@@ -319,6 +319,7 @@ export default function PartyQueue() {
                   }}
                   onTouchMove={(e: TouchEvent<HTMLLIElement>) => {
                     if (touchDragFromIndex === null) return;
+                    e.preventDefault();
                     const touch = e.touches[0];
                     if (!touch) return;
                     const element = document.elementFromPoint(touch.clientX, touch.clientY);
@@ -373,6 +374,28 @@ export default function PartyQueue() {
                       </span>
                     )}
                     <span className="text-sm text-gray-400">{track.votes ?? 0}</span>
+                    <div className="flex items-center gap-1 sm:hidden">
+                      <button
+                        onClick={() => void reorderTrack(index, Math.max(0, index - 1))}
+                        disabled={index === 0}
+                        className="px-2 py-1.5 min-h-9 rounded bg-neutral-800 text-gray-200 hover:bg-neutral-700 disabled:opacity-40"
+                        title="Nach oben"
+                        aria-label="Song nach oben"
+                      >
+                        ↑
+                      </button>
+                      <button
+                        onClick={() =>
+                          void reorderTrack(index, Math.min(queue.length - 1, index + 1))
+                        }
+                        disabled={index >= queue.length - 1}
+                        className="px-2 py-1.5 min-h-9 rounded bg-neutral-800 text-gray-200 hover:bg-neutral-700 disabled:opacity-40"
+                        title="Nach unten"
+                        aria-label="Song nach unten"
+                      >
+                        ↓
+                      </button>
+                    </div>
                     <button
                       draggable
                       onDragStart={() => handleTrackDragStart(index)}
@@ -380,13 +403,14 @@ export default function PartyQueue() {
                         setDragFromIndex(null);
                         setDragOverIndex(null);
                       }}
-                      className="text-sm px-2 py-1 rounded text-gray-300 hover:text-white hover:bg-neutral-700 transition cursor-grab active:cursor-grabbing"
+                      className="hidden sm:inline-block text-sm px-2 py-1.5 min-h-9 rounded text-gray-300 hover:text-white hover:bg-neutral-700 transition cursor-grab active:cursor-grabbing"
                       title="Ziehen zum Verschieben"
                       onTouchStart={() => {
                         setTouchDragFromIndex(index);
                         setTouchDragOverIndex(index);
                         closeTrackMenu();
                       }}
+                      style={{ touchAction: "none" }}
                     >
                       ☰
                     </button>
@@ -394,7 +418,7 @@ export default function PartyQueue() {
                       onClick={() =>
                         setOpenTrackMenu((prev) => (prev === index ? null : index))
                       }
-                      className="text-xs px-2 py-1 rounded bg-neutral-800 text-gray-300 hover:bg-neutral-700"
+                      className="text-xs px-2.5 py-1.5 min-h-9 rounded bg-neutral-800 text-gray-300 hover:bg-neutral-700"
                       title="Song-Menü"
                     >
                       ⋮
