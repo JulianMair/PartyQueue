@@ -41,17 +41,17 @@ export default function DashboardPage() {
   }, []);
 
   return (
-    <div className="flex flex-col h-screen bg-neutral-950 text-gray-100 overflow-hidden">
+    <div className="flex flex-col h-[100dvh] bg-neutral-950 text-gray-100 overflow-hidden">
       {/* Header */}
-      <header className="h-16 border-b border-neutral-800">
+      <header className="h-14 md:h-16 border-b border-neutral-800 shrink-0 bg-neutral-950/95 backdrop-blur">
         <Header username="HostName" onLogout={() => console.log("Logout")} />
       </header>
 
       {/* Hauptinhalt */}
-      <div className="flex-1 overflow-hidden flex flex-col">
+      <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
         {isTabletLayout ? (
           <>
-            <div className="px-3 pt-3">
+            <div className="px-3 pt-2 shrink-0">
               <div className="grid grid-cols-3 gap-2 bg-neutral-900 border border-neutral-800 rounded-lg p-1">
                 <button
                   onClick={() => setActivePane("playlists")}
@@ -86,9 +86,9 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <div className="flex-1 overflow-hidden p-3">
+            <div className="flex-1 min-h-0 overflow-hidden p-3 pt-2">
               {activePane === "playlists" && (
-                <div className="h-full rounded-lg overflow-hidden border border-neutral-800">
+                <div className="h-full min-h-0 rounded-xl overflow-hidden border border-neutral-800 bg-neutral-900 shadow-[0_8px_24px_rgba(0,0,0,0.35)]">
                   <PlaylistSidebar
                     playlists={playlists}
                     onSelect={setSelectedPlaylist}
@@ -98,17 +98,21 @@ export default function DashboardPage() {
               )}
 
               {activePane === "tracks" && (
-                <div className="h-full p-3 border border-neutral-800 rounded-lg overflow-hidden">
-                  <h2 className="text-xl font-bold mb-3 text-gray-50 truncate">
+                <div className="h-full min-h-0 p-3 border border-neutral-800 rounded-xl overflow-hidden bg-neutral-900 shadow-[0_8px_24px_rgba(0,0,0,0.35)] flex flex-col">
+                  <h2 className="text-lg md:text-xl font-bold mb-3 text-gray-50 truncate shrink-0">
                     {selectedPlaylist?.name || "Keine Playlist ausgewählt"}
                   </h2>
-                  <PlaylistTracks playlist={selectedPlaylist} />
+                  <div className="flex-1 min-h-0">
+                    <PlaylistTracks playlist={selectedPlaylist} />
+                  </div>
                 </div>
               )}
 
               {activePane === "queue" && (
-                <div className="h-full p-3 border border-neutral-800 rounded-lg bg-neutral-950 overflow-hidden">
-                  <PartyQueue />
+                <div className="h-full min-h-0 p-3 border border-neutral-800 rounded-xl bg-neutral-900 overflow-hidden shadow-[0_8px_24px_rgba(0,0,0,0.35)]">
+                  <div className="h-full min-h-0">
+                    <PartyQueue />
+                  </div>
                 </div>
               )}
             </div>
@@ -116,8 +120,8 @@ export default function DashboardPage() {
         ) : (
           <Split
             className="flex flex-1 overflow-hidden"
-            sizes={[20, 45, 35]}
-            minSize={[160, 420, 260]}
+            sizes={[22, 43, 35]}
+            minSize={[220, 520, 320]}
             gutterSize={6}
             snapOffset={20}
             expandToMin={true}
@@ -129,23 +133,27 @@ export default function DashboardPage() {
             </div>
 
             {/* 2️⃣ Playlist Tracks */}
-            <div className="p-4 border-r border-neutral-800 min-w-0">
-              <h2 className="text-2xl font-bold mb-4 text-gray-50 truncate">
+            <div className="p-4 border-r border-neutral-800 min-w-0 flex flex-col">
+              <h2 className="text-2xl font-bold mb-4 text-gray-50 truncate shrink-0">
                 {selectedPlaylist?.name || "Keine Playlist ausgewählt"}
               </h2>
-              <PlaylistTracks playlist={selectedPlaylist} />
+              <div className="flex-1 min-h-0">
+                <PlaylistTracks playlist={selectedPlaylist} />
+              </div>
             </div>
 
             {/* 3️⃣ Party Queue */}
-            <div className="overflow-y-auto p-4 bg-neutral-950 min-w-0">
-              <PartyQueue />
+            <div className="p-4 bg-neutral-950 min-w-0 min-h-0">
+              <div className="h-full min-h-0 overflow-hidden rounded-xl border border-neutral-800 bg-neutral-900 shadow-[0_10px_28px_rgba(0,0,0,0.35)] p-3">
+                <PartyQueue />
+              </div>
             </div>
           </Split>
         )}
       </div>
 
       {/* Footer */}
-      <footer className="h-24 border-t border-neutral-800">
+      <footer className="h-20 md:h-24 border-t border-neutral-800 shrink-0 bg-neutral-950/95 backdrop-blur pb-[env(safe-area-inset-bottom)]">
         <FooterPlayer />
       </footer>
     </div>

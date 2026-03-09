@@ -356,7 +356,7 @@ export default function FooterPlayer() {
   // --- Render ---
   if (!track)
     return (
-      <footer className="h-24 bg-neutral-900 text-gray-300 flex items-center justify-center border-t border-neutral-800">
+      <footer className="h-full bg-neutral-900 text-gray-300 flex items-center justify-center border-t border-neutral-800 px-3">
         {isConnecting ? (
           <p>🔄 Verbinde mit Spotify...</p>
         ) : (
@@ -366,9 +366,9 @@ export default function FooterPlayer() {
     );
 
   return (
-    <footer className="h-24 bg-neutral-900 text-gray-200 flex items-center justify-between px-6 border-t border-neutral-800 shadow-[0_-2px_10px_rgba(0,0,0,0.5)]">
+    <footer className="h-full bg-neutral-900 text-gray-200 flex items-center justify-between px-3 md:px-6 border-t border-neutral-800 shadow-[0_-2px_10px_rgba(0,0,0,0.5)]">
       {/* Song Infos */}
-      <div className="flex items-center gap-4 w-1/3">
+      <div className="flex items-center gap-3 md:gap-4 w-1/3 min-w-0">
         <img
           src={track.albumArt}
           alt={track.name}
@@ -426,7 +426,7 @@ export default function FooterPlayer() {
 
       {/* Rechts */}
       <div className="w-1/3 flex flex-col items-end gap-2">
-        <div className="flex items-center gap-3 w-56">
+        <div className="flex items-center gap-3 w-44 md:w-56">
           <span className="text-xs text-gray-400 w-9 text-right">
             {volume !== null ? `${volume}%` : "--"}
           </span>

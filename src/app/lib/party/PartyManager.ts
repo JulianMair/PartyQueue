@@ -10,7 +10,12 @@ export interface PartyState {
   version: number;
 }
 
-export type VoteResultStatus = "ok" | "duplicate" | "not_found";
+export type VoteResultStatus =
+  | "ok"
+  | "duplicate"
+  | "not_found"
+  | "removed"
+  | "not_voted";
 
 export interface VoteResult {
   status: VoteResultStatus;
@@ -237,6 +242,56 @@ export class PartyManager extends EventEmitter {
     console.log(`Vote akzeptiert: ${trackId}`);
     return {
       status: "ok",
+      top10: this.getTop10(),
+      version: this.state.version,
+    };
+  }
+
+  unvote(trackId: string, clientId: string): VoteResult {
+    const votedTracks = this.voted.get(clientId);
+    if (!votedTracks || !votedTracks.has(trackId)) {
+      return {
+        status: "not_voted",
+        top10: this.getTop10(),
+        version: this.state.version,
+      };
+    }
+
+    const index = this.state.queue.findIndex((t) => t.id === trackId);
+    if (index < 0) {
+      votedTracks.delete(trackId);
+      return {
+        status: "not_found",
+        top10: this.getTop10(),
+        version: this.state.version,
+      };
+    }
+
+    const track = this.state.queue[index];
+    track.votes = Math.max(0, track.votes - 1);
+    votedTracks.delete(trackId);
+
+    // Bei weniger Votes kann der Track nach unten rutschen.
+    let currentIndex = index;
+    while (
+      currentIndex < this.state.queue.length - 1 &&
+      this.trackShouldComeBefore(
+        this.state.queue[currentIndex + 1],
+        this.state.queue[currentIndex]
+      )
+    ) {
+      const tmp = this.state.queue[currentIndex + 1];
+      this.state.queue[currentIndex + 1] = this.state.queue[currentIndex];
+      this.state.queue[currentIndex] = tmp;
+      currentIndex += 1;
+    }
+
+    this.bumpVersion();
+    this.emit("queueUpdated", this.state.queue);
+    this.emit("stateChanged", this.state);
+
+    return {
+      status: "removed",
       top10: this.getTop10(),
       version: this.state.version,
     };

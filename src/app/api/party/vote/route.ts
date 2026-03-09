@@ -2,7 +2,7 @@ import { partyRegistry } from "@/app/lib/party/PartyRegistry";
 import { NextResponse } from "next/server";
 
 export async function POST(req: Request) {
-  const { partyId, trackId, clientId } = await req.json();
+  const { partyId, trackId, clientId, action } = await req.json();
 
   if (!partyId || !trackId || !clientId) {
     return NextResponse.json(
@@ -16,7 +16,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Party not found" }, { status: 404 });
   }
 
-  const result = manager.vote(trackId, clientId);
+  const result =
+    action === "unvote"
+      ? manager.unvote(trackId, clientId)
+      : manager.vote(trackId, clientId);
 
   return NextResponse.json({
     success: result.status !== "not_found",

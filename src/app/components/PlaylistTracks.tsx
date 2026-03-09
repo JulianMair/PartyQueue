@@ -214,24 +214,27 @@ export default function PlaylistTracks({ playlist }: PlaylistTracksProps) {
   return (
     <div className="h-full overflow-y-auto scrollbar-thin scrollbar-thumb-neutral-700 scrollbar-track-neutral-900 pr-2">
       <div className="sticky top-0 z-10 pb-3 mb-3 border-b border-neutral-800 bg-neutral-950">
-        <div className="flex items-center gap-2 mb-2">
-          <input
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Spotify Songs suchen..."
-            className="flex-1 px-3 py-2 bg-neutral-900 border border-neutral-700 rounded-lg text-sm text-gray-100 placeholder:text-gray-500"
-          />
+        <div className="mb-3 flex justify-center">
+          <div className="relative w-full max-w-sm">
+            <input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Spotify Songs suchen..."
+              className="w-full px-3 py-2 pr-9 bg-neutral-900 border border-neutral-700 rounded-lg text-sm text-gray-100 placeholder:text-gray-500"
+            />
             {searchQuery && (
               <button
-              onClick={() => {
-                setSearchQuery("");
-                setSearchError(null);
-              }}
-              className="px-3 py-2 text-xs rounded-md bg-neutral-800 text-gray-300 hover:bg-neutral-700"
-            >
-              Reset
-            </button>
-          )}
+                onClick={() => {
+                  setSearchQuery("");
+                  setSearchError(null);
+                }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white text-base leading-none"
+                aria-label="Suche leeren"
+              >
+                ×
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="flex items-center justify-between gap-3">

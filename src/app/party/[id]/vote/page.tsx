@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, use } from "react";
+import { useEffect, useRef, useState, use } from "react";
 import { PartyTrack } from "@/app/lib/providers/types";
 
 /* -------------------------------------------------------------------------- */
@@ -40,6 +40,10 @@ function markVoted(partyId: string, trackId: string) {
   localStorage.setItem(`vote_${partyId}_${trackId}`, "1");
 }
 
+function unmarkVoted(partyId: string, trackId: string) {
+  localStorage.removeItem(`vote_${partyId}_${trackId}`);
+}
+
 function loadVotedSet(partyId: string, tracks: PartyTrack[]) {
   const voted = new Set<string>();
   for (const track of tracks) {
@@ -54,6 +58,49 @@ function getTop10Signature(top10: PartyTrack[]) {
   return top10
     .map((track) => `${track.id}:${track.votes}:${track.addedAt}`)
     .join("|");
+}
+
+function trackShouldComeBefore(a: PartyTrack, b: PartyTrack) {
+  return a.votes > b.votes || (a.votes === b.votes && a.addedAt < b.addedAt);
+}
+
+function applyLocalVoteDelta(
+  previous: PartyTrack[],
+  trackId: string,
+  delta: 1 | -1
+) {
+  const index = previous.findIndex((song) => song.id === trackId);
+  if (index < 0) return previous;
+
+  const next = previous.map((song, i) =>
+    i === index ? { ...song, votes: Math.max(0, song.votes + delta) } : song
+  );
+
+  let current = index;
+
+  if (delta > 0) {
+    while (
+      current > 0 &&
+      trackShouldComeBefore(next[current], next[current - 1])
+    ) {
+      const tmp = next[current - 1];
+      next[current - 1] = next[current];
+      next[current] = tmp;
+      current -= 1;
+    }
+  } else {
+    while (
+      current < next.length - 1 &&
+      trackShouldComeBefore(next[current + 1], next[current])
+    ) {
+      const tmp = next[current + 1];
+      next[current + 1] = next[current];
+      next[current] = tmp;
+      current += 1;
+    }
+  }
+
+  return next;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -144,10 +191,12 @@ export default function MobileVotePage({ params }: { params: Promise<{ id: strin
   /* -------------------------------------------------------------------------- */
 
   const vote = async (trackId: string) => {
-    if (votedTrackIds.has(trackId) || pendingVoteTrackIds.has(trackId)) return;
+    if (pendingVoteTrackIds.has(trackId)) return;
 
     const clientId = getClientId();
     const previousSongs = songs;
+    const wasVoted = votedTrackIds.has(trackId);
+    const action: "vote" | "unvote" = wasVoted ? "unvote" : "vote";
 
     setPendingVoteTrackIds((prev) => {
       const next = new Set(prev);
@@ -155,29 +204,13 @@ export default function MobileVotePage({ params }: { params: Promise<{ id: strin
       return next;
     });
 
-    setSongs((prev) => {
-      const idx = prev.findIndex((song) => song.id === trackId);
-      if (idx < 0) return prev;
-
-      const next = prev.map((song, index) =>
-        index === idx ? { ...song, votes: song.votes + 1 } : song
-      );
-      const votedSong = next[idx];
-      let current = idx;
-      while (
-        current > 0 &&
-        (next[current].votes > next[current - 1].votes ||
-          (next[current].votes === next[current - 1].votes &&
-            next[current].addedAt < next[current - 1].addedAt))
-      ) {
-        const tmp = next[current - 1];
-        next[current - 1] = next[current];
-        next[current] = tmp;
-        current -= 1;
-      }
-
-      if (!votedSong) return prev;
-      top10SignatureRef.current = getTop10Signature(next);
+    const optimistic = applyLocalVoteDelta(previousSongs, trackId, wasVoted ? -1 : 1);
+    setSongs(optimistic);
+    top10SignatureRef.current = getTop10Signature(optimistic);
+    setVotedTrackIds((prev) => {
+      const next = new Set(prev);
+      if (wasVoted) next.delete(trackId);
+      else next.add(trackId);
       return next;
     });
 
@@ -185,13 +218,19 @@ export default function MobileVotePage({ params }: { params: Promise<{ id: strin
       const res = await fetch("/api/party/vote", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ partyId, trackId, clientId }),
+        body: JSON.stringify({ partyId, trackId, clientId, action }),
       });
 
       const data = await res.json().catch(() => ({}));
       if (!res.ok || data.status === "not_found") {
         setSongs(previousSongs);
         top10SignatureRef.current = getTop10Signature(previousSongs);
+        setVotedTrackIds((prev) => {
+          const next = new Set(prev);
+          if (wasVoted) next.add(trackId);
+          else next.delete(trackId);
+          return next;
+        });
         return;
       }
 
@@ -200,6 +239,15 @@ export default function MobileVotePage({ params }: { params: Promise<{ id: strin
         setVotedTrackIds((prev) => {
           const next = new Set(prev);
           next.add(trackId);
+          return next;
+        });
+      }
+
+      if (data.status === "removed" || data.status === "not_voted") {
+        unmarkVoted(partyId, trackId);
+        setVotedTrackIds((prev) => {
+          const next = new Set(prev);
+          next.delete(trackId);
           return next;
         });
       }
@@ -219,6 +267,12 @@ export default function MobileVotePage({ params }: { params: Promise<{ id: strin
     } catch {
       setSongs(previousSongs);
       top10SignatureRef.current = getTop10Signature(previousSongs);
+      setVotedTrackIds((prev) => {
+        const next = new Set(prev);
+        if (wasVoted) next.add(trackId);
+        else next.delete(trackId);
+        return next;
+      });
     } finally {
       setPendingVoteTrackIds((prev) => {
         const next = new Set(prev);
@@ -227,12 +281,6 @@ export default function MobileVotePage({ params }: { params: Promise<{ id: strin
       });
     }
   };
-
-  const votedOrPending = useMemo(() => {
-    const combined = new Set(votedTrackIds);
-    pendingVoteTrackIds.forEach((id) => combined.add(id));
-    return combined;
-  }, [pendingVoteTrackIds, votedTrackIds]);
 
   /* -------------------------------------------------------------------------- */
   /*                                   UI                                       */
@@ -255,7 +303,8 @@ export default function MobileVotePage({ params }: { params: Promise<{ id: strin
       {/* SCROLLABLE SONG LIST */}
       <div className="space-y-3 max-h-[75vh] overflow-y-auto pr-1">
         {songs.map((s, i) => {
-          const voted = votedOrPending.has(s.id);
+          const voted = votedTrackIds.has(s.id);
+          const pending = pendingVoteTrackIds.has(s.id);
 
           return (
             <div
@@ -284,15 +333,17 @@ export default function MobileVotePage({ params }: { params: Promise<{ id: strin
 
               {/* Vote Button */}
               <button
-                disabled={voted}
+                disabled={pending}
                 onClick={() => vote(s.id)}
                 className={`px-3 py-1 rounded-lg text-sm ${
-                  voted
-                    ? "bg-neutral-700 text-neutral-500 cursor-not-allowed"
-                    : "bg-green-600 hover:bg-green-500"
+                  pending
+                    ? "bg-neutral-700 text-neutral-500 cursor-wait"
+                    : voted
+                    ? "bg-yellow-700 hover:bg-yellow-600 text-yellow-100"
+                    : "bg-green-600 hover:bg-green-500 text-white"
                 }`}
               >
-                {voted ? "✔" : "👍"}
+                {pending ? "…" : voted ? "↩︎" : "👍"}
               </button>
             </div>
           );
