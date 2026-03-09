@@ -6,20 +6,25 @@ import { Music } from "lucide-react";
 interface PlaylistSidebarProps {
   playlists: Playlist[];
   onSelect: (playlist: string) => void;
+  forceExpanded?: boolean;
 }
 
-export default function PlaylistSidebar({ playlists, onSelect }: any) {
+export default function PlaylistSidebar({ playlists, onSelect, forceExpanded = false }: any) {
   const [isCompact, setIsCompact] = useState(false);
 
   // erkennt Bildschirmgröße
 useEffect(() => {
+    if (forceExpanded) {
+      setIsCompact(false);
+      return;
+    }
     const handleResize = () => {
       setIsCompact(window.innerWidth < 1100);
     };
     handleResize();
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
-  }, []);
+  }, [forceExpanded]);
 
   return (
     <aside

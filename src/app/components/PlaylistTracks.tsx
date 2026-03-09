@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { Track, Playlist } from "../lib/providers/types";
 import { useParty } from "@/app/context/PartyContext";
 
@@ -10,11 +10,14 @@ interface PlaylistTracksProps {
 }
 
 export default function PlaylistTracks({ playlist }: PlaylistTracksProps) {
+  const MIN_SEARCH_CHARS = 2;
+  const SEARCH_DEBOUNCE_MS = 350;
   const [tracks, setTracks] = useState<Track[]>([]);
   const [searchTracks, setSearchTracks] = useState<Track[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [hasSearched, setHasSearched] = useState(false);
   const [loading, setLoading] = useState(false);
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
@@ -23,8 +26,14 @@ export default function PlaylistTracks({ playlist }: PlaylistTracksProps) {
   const [addingPlaylist, setAddingPlaylist] = useState(false);
   const [playlistAddMessage, setPlaylistAddMessage] = useState<string | null>(null);
   const { partyId, isPartyActive } = useParty();
-  const isSearching = searchQuery.trim().length >= 2;
-  const displayedTracks = isSearching ? searchTracks : tracks;
+  const searchAbortRef = useRef<AbortController | null>(null);
+  const latestSearchTokenRef = useRef(0);
+  const normalizedSearchQuery = useMemo(() => searchQuery.trim(), [searchQuery]);
+  const isSearching = normalizedSearchQuery.length >= MIN_SEARCH_CHARS;
+  const displayedTracks = useMemo(
+    () => (isSearching ? searchTracks : tracks),
+    [isSearching, searchTracks, tracks]
+  );
 
   // --- EXISTIERENDE useCallback fetchTracks() ---
   const fetchTracks = useCallback(async () => {
@@ -63,39 +72,53 @@ export default function PlaylistTracks({ playlist }: PlaylistTracksProps) {
 
   useEffect(() => {
     if (!isSearching) {
+      searchAbortRef.current?.abort();
+      searchAbortRef.current = null;
       setSearchTracks([]);
       setSearchError(null);
       setSearchLoading(false);
+      setHasSearched(false);
       return;
     }
 
-    let isCancelled = false;
+    const token = latestSearchTokenRef.current + 1;
+    latestSearchTokenRef.current = token;
+
+    searchAbortRef.current?.abort();
+    const controller = new AbortController();
+    searchAbortRef.current = controller;
+
     const timer = setTimeout(async () => {
       try {
         setSearchLoading(true);
         setSearchError(null);
-        const q = encodeURIComponent(searchQuery.trim());
+        setHasSearched(true);
+        const q = encodeURIComponent(normalizedSearchQuery);
         const res = await fetch(`/api/music/search?q=${q}&limit=50`, {
           cache: "no-store",
+          signal: controller.signal,
         });
         const data = await res.json();
-        if (isCancelled) return;
+        if (token !== latestSearchTokenRef.current) return;
         if (!res.ok) throw new Error(data.error || "Fehler bei der Suche");
         setSearchTracks(Array.isArray(data.tracks) ? data.tracks : []);
       } catch (err: any) {
-        if (isCancelled) return;
+        if (err?.name === "AbortError") return;
+        if (token !== latestSearchTokenRef.current) return;
         setSearchError(err?.message || "Fehler bei der Suche");
         setSearchTracks([]);
       } finally {
-        if (!isCancelled) setSearchLoading(false);
+        if (token === latestSearchTokenRef.current) {
+          setSearchLoading(false);
+        }
       }
-    }, 300);
+    }, SEARCH_DEBOUNCE_MS);
 
     return () => {
-      isCancelled = true;
       clearTimeout(timer);
+      controller.abort();
     };
-  }, [isSearching, searchQuery]);
+  }, [isSearching, normalizedSearchQuery]);
 
   const lastTrackRef = useCallback(
     (node: HTMLLIElement | null) => {
@@ -198,9 +221,12 @@ export default function PlaylistTracks({ playlist }: PlaylistTracksProps) {
             placeholder="Spotify Songs suchen..."
             className="flex-1 px-3 py-2 bg-neutral-900 border border-neutral-700 rounded-lg text-sm text-gray-100 placeholder:text-gray-500"
           />
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery("")}
+            {searchQuery && (
+              <button
+              onClick={() => {
+                setSearchQuery("");
+                setSearchError(null);
+              }}
               className="px-3 py-2 text-xs rounded-md bg-neutral-800 text-gray-300 hover:bg-neutral-700"
             >
               Reset
@@ -211,7 +237,7 @@ export default function PlaylistTracks({ playlist }: PlaylistTracksProps) {
         <div className="flex items-center justify-between gap-3">
           <p className="text-sm text-gray-400 truncate">
             {isSearching
-              ? `Suche: "${searchQuery.trim()}"`
+              ? `Suche: "${normalizedSearchQuery}"`
               : playlist?.name || "Keine Playlist ausgewählt"}
           </p>
           <button
@@ -283,6 +309,11 @@ export default function PlaylistTracks({ playlist }: PlaylistTracksProps) {
           🔎 Suche läuft...
         </p>
       )}
+      {!isSearching && normalizedSearchQuery.length > 0 && normalizedSearchQuery.length < MIN_SEARCH_CHARS && (
+        <p className="text-gray-500 p-6 text-center">
+          Bitte mindestens {MIN_SEARCH_CHARS} Zeichen eingeben.
+        </p>
+      )}
       {loading && !isSearching && (
         <p className="text-center text-gray-400 py-4 animate-pulse">
           ⏳ Lade weitere Songs...
@@ -293,7 +324,7 @@ export default function PlaylistTracks({ playlist }: PlaylistTracksProps) {
           🎵 Wähle links eine Playlist oder nutze die Suche.
         </p>
       )}
-      {isSearching && !searchLoading && displayedTracks.length === 0 && (
+      {isSearching && hasSearched && !searchLoading && displayedTracks.length === 0 && (
         <p className="text-gray-500 p-6 text-center">
           Keine Suchergebnisse.
         </p>

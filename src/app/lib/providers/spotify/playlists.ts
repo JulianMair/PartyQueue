@@ -100,12 +100,14 @@ export async function searchTracks(
 ): Promise<Track[]> {
   const trimmed = query.trim();
   if (!trimmed) return [];
+  const safeLimit = Math.min(50, Math.max(1, limit));
 
   const token = await getSpotifyToken();
   const params = new URLSearchParams({
     q: trimmed,
     type: "track",
-    limit: String(limit),
+    limit: String(safeLimit),
+    market: "from_token",
   });
 
   const res = await fetch(`https://api.spotify.com/v1/search?${params.toString()}`, {
@@ -121,16 +123,34 @@ export async function searchTracks(
   const data = await res.json();
   const items = data?.tracks?.items ?? [];
 
-  return items
+  const normalizedQuery = trimmed.toLowerCase();
+  const scored = items
     .filter((item: any) => item?.id && item?.uri)
-    .map((item: any) => ({
-      id: item.id,
-      name: item.name,
-      artist: item.artists.map((a: any) => a.name).join(", "),
-      uri: item.uri,
-      albumArt: item.album?.images?.[0]?.url,
-      durationMs: item.duration_ms,
-      progressMs: 0,
-      isplaying: false,
-    }));
+    .map((item: any) => {
+      const name = String(item.name || "");
+      const artistNames = (item.artists || []).map((a: any) => String(a.name || ""));
+      const nameLower = name.toLowerCase();
+      const artistCombinedLower = artistNames.join(" ").toLowerCase();
+
+      let score = item.popularity ?? 0;
+      if (nameLower === normalizedQuery) score += 500;
+      else if (nameLower.startsWith(normalizedQuery)) score += 250;
+      else if (nameLower.includes(normalizedQuery)) score += 120;
+
+      if (artistCombinedLower.includes(normalizedQuery)) score += 80;
+
+      return { item, score };
+    })
+    .sort((a: any, b: any) => b.score - a.score);
+
+  return scored.map(({ item }: any) => ({
+    id: item.id,
+    name: item.name,
+    artist: item.artists.map((a: any) => a.name).join(", "),
+    uri: item.uri,
+    albumArt: item.album?.images?.[0]?.url,
+    durationMs: item.duration_ms,
+    progressMs: 0,
+    isplaying: false,
+  }));
 }

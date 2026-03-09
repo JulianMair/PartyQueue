@@ -5,16 +5,19 @@ export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const q = (searchParams.get("q") || "").trim();
-    const limit = parseInt(searchParams.get("limit") || "50", 10);
+    const requestedLimit = parseInt(searchParams.get("limit") || "25", 10);
+    const limit = Number.isNaN(requestedLimit)
+      ? 25
+      : Math.min(50, Math.max(1, requestedLimit));
 
-    if (!q) {
-      return NextResponse.json({ tracks: [] });
+    if (q.length < 2) {
+      return NextResponse.json({ tracks: [], minQueryLength: 2 });
     }
 
     const provider = getProvider("spotify");
-    const tracks = await provider.searchTracks(q, Number.isNaN(limit) ? 50 : limit);
+    const tracks = await provider.searchTracks(q, limit);
 
-    return NextResponse.json({ tracks });
+    return NextResponse.json({ tracks, query: q, limit });
   } catch (error: any) {
     console.error("Search tracks error:", error);
     return NextResponse.json(

@@ -1,6 +1,6 @@
 "use client";
 
-import { DragEvent, useState, useEffect } from "react";
+import { DragEvent, Fragment, useState, useEffect } from "react";
 import QRCode from "react-qr-code";
 import { useParty } from "@/app/context/PartyContext";
 // Typ aus deinem bestehenden Spotify-Provider
@@ -16,6 +16,7 @@ interface PartyListItem {
 }
 
 export default function PartyQueue() {
+  const MOBILE_TOP_LIMIT = 10;
   const { partyId, setPartyId, isPartyActive, setIsPartyActive } = useParty();
   const [showQr, setShowQr] = useState(false);
   const [queue, setQueue] = useState<PartyTrack[]>([]);
@@ -279,75 +280,95 @@ export default function PartyQueue() {
         {queue.length === 0 ? (
           <p className="text-gray-400 text-sm text-center">Noch keine Songs in der Queue 🎵</p>
         ) : (
-          queue.map((track, index) => (
-            <li
-              key={`${track.id}-${track.addedAt}-${index}`}
-              onDragOver={(e: DragEvent<HTMLLIElement>) => {
-                e.preventDefault();
-                setDragOverIndex(index);
-              }}
-              onDragLeave={() => {
-                if (dragOverIndex === index) setDragOverIndex(null);
-              }}
-              onDrop={(e: DragEvent<HTMLLIElement>) => {
-                e.preventDefault();
-                void handleTrackDrop(index);
-              }}
-              className={`flex items-center justify-between bg-neutral-900 border rounded-lg p-3 hover:bg-neutral-800 transition ${
-                dragOverIndex === index
-                  ? "border-green-500"
-                  : "border-neutral-800"
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                {track.albumArt && (
-                  <img
-                    src={track.albumArt}
-                    alt={track.name}
-                    className="w-12 h-12 rounded-md object-cover"
-                  />
+          queue.map((track, index) => {
+            const isInMobileTop = index < MOBILE_TOP_LIMIT;
+
+            return (
+              <Fragment key={`${track.id}-${track.addedAt}-${index}`}>
+                {index === MOBILE_TOP_LIMIT && (
+                  <li className="py-2">
+                    <div className="border-t border-dashed border-yellow-600 pt-2 text-center text-xs text-yellow-400">
+                      Ab hier nur Host-Queue (nicht im Mobile Voting)
+                    </div>
+                  </li>
                 )}
-                <div>
-                  <p className="text-gray-100 font-medium truncate">{track.name}</p>
-                  <p className="text-gray-400 text-sm truncate">{track.artist}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 relative">
-                <span className="text-sm text-gray-400">{track.votes ?? 0}</span>
-                <button
-                  draggable
-                  onDragStart={() => handleTrackDragStart(index)}
-                  onDragEnd={() => {
-                    setDragFromIndex(null);
-                    setDragOverIndex(null);
+
+                <li
+                  onDragOver={(e: DragEvent<HTMLLIElement>) => {
+                    e.preventDefault();
+                    setDragOverIndex(index);
                   }}
-                  className="text-sm px-2 py-1 rounded text-gray-300 hover:text-white hover:bg-neutral-700 transition cursor-grab active:cursor-grabbing"
-                  title="Ziehen zum Verschieben"
+                  onDragLeave={() => {
+                    if (dragOverIndex === index) setDragOverIndex(null);
+                  }}
+                  onDrop={(e: DragEvent<HTMLLIElement>) => {
+                    e.preventDefault();
+                    void handleTrackDrop(index);
+                  }}
+                  className={`flex items-center justify-between bg-neutral-900 border rounded-lg p-3 hover:bg-neutral-800 transition ${
+                    dragOverIndex === index
+                      ? "border-green-500"
+                      : isInMobileTop
+                      ? "border-yellow-700"
+                      : "border-neutral-800"
+                  }`}
                 >
-                  ☰
-                </button>
-                <button
-                  onClick={() =>
-                    setOpenTrackMenu((prev) => (prev === index ? null : index))
-                  }
-                  className="text-xs px-2 py-1 rounded bg-neutral-800 text-gray-300 hover:bg-neutral-700"
-                  title="Song-Menü"
-                >
-                  ⋮
-                </button>
-                {openTrackMenu === index && (
-                  <div className="absolute right-0 top-8 z-10 w-36 bg-neutral-900 border border-neutral-700 rounded-md shadow-lg p-1">
-                    <button
-                      onClick={() => void handleRemoveTrack(index)}
-                      className="w-full text-left px-3 py-2 text-sm text-red-300 hover:bg-neutral-800 rounded"
-                    >
-                      Song löschen
-                    </button>
+                  <div className="flex items-center gap-3">
+                    {track.albumArt && (
+                      <img
+                        src={track.albumArt}
+                        alt={track.name}
+                        className="w-12 h-12 rounded-md object-cover"
+                      />
+                    )}
+                    <div>
+                      <p className="text-gray-100 font-medium truncate">{track.name}</p>
+                      <p className="text-gray-400 text-sm truncate">{track.artist}</p>
+                    </div>
                   </div>
-                )}
-              </div>
-            </li>
-          ))
+                  <div className="flex items-center gap-2 relative">
+                    {isInMobileTop && (
+                      <span className="text-[10px] px-2 py-0.5 rounded bg-yellow-700/40 text-yellow-300 border border-yellow-700">
+                        Mobile Top 10
+                      </span>
+                    )}
+                    <span className="text-sm text-gray-400">{track.votes ?? 0}</span>
+                    <button
+                      draggable
+                      onDragStart={() => handleTrackDragStart(index)}
+                      onDragEnd={() => {
+                        setDragFromIndex(null);
+                        setDragOverIndex(null);
+                      }}
+                      className="text-sm px-2 py-1 rounded text-gray-300 hover:text-white hover:bg-neutral-700 transition cursor-grab active:cursor-grabbing"
+                      title="Ziehen zum Verschieben"
+                    >
+                      ☰
+                    </button>
+                    <button
+                      onClick={() =>
+                        setOpenTrackMenu((prev) => (prev === index ? null : index))
+                      }
+                      className="text-xs px-2 py-1 rounded bg-neutral-800 text-gray-300 hover:bg-neutral-700"
+                      title="Song-Menü"
+                    >
+                      ⋮
+                    </button>
+                    {openTrackMenu === index && (
+                      <div className="absolute right-0 top-8 z-10 w-36 bg-neutral-900 border border-neutral-700 rounded-md shadow-lg p-1">
+                        <button
+                          onClick={() => void handleRemoveTrack(index)}
+                          className="w-full text-left px-3 py-2 text-sm text-red-300 hover:bg-neutral-800 rounded"
+                        >
+                          Song löschen
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </li>
+              </Fragment>
+            );
+          })
         )}
       </ul>
 
