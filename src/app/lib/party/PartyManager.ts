@@ -126,6 +126,40 @@ export class PartyManager extends EventEmitter {
     return allTracks.length;
   }
 
+  /** HOST: Queue-Eintrag verschieben */
+  moveTrack(fromIndex: number, toIndex: number) {
+    const lastIndex = this.state.queue.length - 1;
+    if (lastIndex < 0) return;
+    if (
+      fromIndex < 0 ||
+      fromIndex > lastIndex ||
+      toIndex < 0 ||
+      toIndex > lastIndex ||
+      fromIndex === toIndex
+    ) {
+      return;
+    }
+
+    const [moved] = this.state.queue.splice(fromIndex, 1);
+    this.state.queue.splice(toIndex, 0, moved);
+
+    this.emit("queueUpdated", this.state.queue);
+    this.emit("stateChanged", this.state);
+  }
+
+  /** HOST: Queue-Eintrag löschen */
+  removeTrackAt(index: number) {
+    if (index < 0 || index >= this.state.queue.length) return;
+
+    const [removed] = this.state.queue.splice(index, 1);
+    if (removed) {
+      this.voted.forEach((tracks) => tracks.delete(removed.id));
+    }
+
+    this.emit("queueUpdated", this.state.queue);
+    this.emit("stateChanged", this.state);
+  }
+
   /** VOTING → beeinflusst NUR die interne Queue */
 async vote(trackId: string, clientId: string) {
   // Falls es den client noch nicht gibt → Set anlegen
