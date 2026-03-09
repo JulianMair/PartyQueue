@@ -1,6 +1,6 @@
 "use client";
 
-import { DragEvent, Fragment, useState, useEffect } from "react";
+import { DragEvent, Fragment, TouchEvent, useState, useEffect } from "react";
 import QRCode from "react-qr-code";
 import { useParty } from "@/app/context/PartyContext";
 // Typ aus deinem bestehenden Spotify-Provider
@@ -25,6 +25,8 @@ export default function PartyQueue() {
   const [isBusy, setIsBusy] = useState(false);
   const [dragFromIndex, setDragFromIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [touchDragFromIndex, setTouchDragFromIndex] = useState<number | null>(null);
+  const [touchDragOverIndex, setTouchDragOverIndex] = useState<number | null>(null);
   const [openTrackMenu, setOpenTrackMenu] = useState<number | null>(null);
   const BASIC_URI = process.env.NEXT_PUBLIC_BASE_URL!;
 
@@ -169,20 +171,27 @@ export default function PartyQueue() {
       return;
     }
 
+    await reorderTrack(dragFromIndex, toIndex);
+    setDragFromIndex(null);
+    setDragOverIndex(null);
+  };
+
+  const reorderTrack = async (fromIndex: number, toIndex: number) => {
+    if (!partyId || fromIndex === toIndex) return;
+
     try {
       const res = await fetch("/api/party/reorder", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ partyId, fromIndex: dragFromIndex, toIndex }),
+        body: JSON.stringify({ partyId, fromIndex, toIndex }),
       });
       if (!res.ok) return;
       const data = await res.json();
       if (Array.isArray(data.queue)) {
         setQueue(data.queue);
       }
-    } finally {
-      setDragFromIndex(null);
-      setDragOverIndex(null);
+    } catch (err) {
+      console.error("Fehler beim Verschieben:", err);
     }
   };
 
@@ -206,6 +215,8 @@ export default function PartyQueue() {
   };
 
   const partyUrl = partyId ? `${partyBaseUrl}/${partyId}/vote` : "";
+  const effectiveDragOverIndex =
+    dragOverIndex !== null ? dragOverIndex : touchDragOverIndex;
 
   return (
     <div className="flex flex-col h-full">
@@ -294,6 +305,7 @@ export default function PartyQueue() {
                 )}
 
                 <li
+                  data-queue-index={index}
                   onDragOver={(e: DragEvent<HTMLLIElement>) => {
                     e.preventDefault();
                     setDragOverIndex(index);
@@ -305,8 +317,36 @@ export default function PartyQueue() {
                     e.preventDefault();
                     void handleTrackDrop(index);
                   }}
+                  onTouchMove={(e: TouchEvent<HTMLLIElement>) => {
+                    if (touchDragFromIndex === null) return;
+                    const touch = e.touches[0];
+                    if (!touch) return;
+                    const element = document.elementFromPoint(touch.clientX, touch.clientY);
+                    const target = element?.closest("[data-queue-index]") as HTMLElement | null;
+                    const nextIndex = target
+                      ? Number(target.getAttribute("data-queue-index"))
+                      : null;
+                    if (nextIndex !== null && !Number.isNaN(nextIndex)) {
+                      setTouchDragOverIndex(nextIndex);
+                    }
+                  }}
+                  onTouchEnd={() => {
+                    if (
+                      touchDragFromIndex !== null &&
+                      touchDragOverIndex !== null &&
+                      touchDragFromIndex !== touchDragOverIndex
+                    ) {
+                      void reorderTrack(touchDragFromIndex, touchDragOverIndex);
+                    }
+                    setTouchDragFromIndex(null);
+                    setTouchDragOverIndex(null);
+                  }}
+                  onTouchCancel={() => {
+                    setTouchDragFromIndex(null);
+                    setTouchDragOverIndex(null);
+                  }}
                   className={`flex items-center justify-between bg-neutral-900 border rounded-lg p-3 hover:bg-neutral-800 transition ${
-                    dragOverIndex === index
+                    effectiveDragOverIndex === index
                       ? "border-green-500"
                       : isInMobileTop
                       ? "border-yellow-700"
@@ -342,6 +382,11 @@ export default function PartyQueue() {
                       }}
                       className="text-sm px-2 py-1 rounded text-gray-300 hover:text-white hover:bg-neutral-700 transition cursor-grab active:cursor-grabbing"
                       title="Ziehen zum Verschieben"
+                      onTouchStart={() => {
+                        setTouchDragFromIndex(index);
+                        setTouchDragOverIndex(index);
+                        closeTrackMenu();
+                      }}
                     >
                       ☰
                     </button>
@@ -356,6 +401,22 @@ export default function PartyQueue() {
                     </button>
                     {openTrackMenu === index && (
                       <div className="absolute right-0 top-8 z-10 w-36 bg-neutral-900 border border-neutral-700 rounded-md shadow-lg p-1">
+                        <button
+                          onClick={() => void reorderTrack(index, Math.max(0, index - 1))}
+                          disabled={index === 0}
+                          className="w-full text-left px-3 py-2 text-sm text-gray-200 hover:bg-neutral-800 rounded disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          Nach oben
+                        </button>
+                        <button
+                          onClick={() =>
+                            void reorderTrack(index, Math.min(queue.length - 1, index + 1))
+                          }
+                          disabled={index >= queue.length - 1}
+                          className="w-full text-left px-3 py-2 text-sm text-gray-200 hover:bg-neutral-800 rounded disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          Nach unten
+                        </button>
                         <button
                           onClick={() => void handleRemoveTrack(index)}
                           className="w-full text-left px-3 py-2 text-sm text-red-300 hover:bg-neutral-800 rounded"

@@ -15,7 +15,15 @@ export default function DashboardPage() {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [viewportWidth, setViewportWidth] = useState<number>(1400);
   const [activePane, setActivePane] = useState<"playlists" | "tracks" | "queue">("tracks");
+  const isMobileLayout = viewportWidth < 900;
   const isTabletLayout = viewportWidth < 1180;
+
+  const handleSelectPlaylist = (playlist: Playlist | null) => {
+    setSelectedPlaylist(playlist);
+    if (isTabletLayout) {
+      setActivePane("tracks");
+    }
+  };
 
   const fetchPlaylists = async () => {
     try {
@@ -51,11 +59,13 @@ export default function DashboardPage() {
       <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
         {isTabletLayout ? (
           <>
-            <div className="px-3 pt-2 shrink-0">
+            <div className={`${isMobileLayout ? "px-2 pt-2" : "px-3 pt-2"} shrink-0`}>
               <div className="grid grid-cols-3 gap-2 bg-neutral-900 border border-neutral-800 rounded-lg p-1">
                 <button
                   onClick={() => setActivePane("playlists")}
-                  className={`px-3 py-2 text-sm rounded-md transition ${
+                  className={`${
+                    isMobileLayout ? "px-2 py-2 text-xs" : "px-3 py-2 text-sm"
+                  } rounded-md transition ${
                     activePane === "playlists"
                       ? "bg-neutral-700 text-white"
                       : "text-gray-300 hover:bg-neutral-800"
@@ -65,7 +75,9 @@ export default function DashboardPage() {
                 </button>
                 <button
                   onClick={() => setActivePane("tracks")}
-                  className={`px-3 py-2 text-sm rounded-md transition ${
+                  className={`${
+                    isMobileLayout ? "px-2 py-2 text-xs" : "px-3 py-2 text-sm"
+                  } rounded-md transition ${
                     activePane === "tracks"
                       ? "bg-neutral-700 text-white"
                       : "text-gray-300 hover:bg-neutral-800"
@@ -75,7 +87,9 @@ export default function DashboardPage() {
                 </button>
                 <button
                   onClick={() => setActivePane("queue")}
-                  className={`px-3 py-2 text-sm rounded-md transition ${
+                  className={`${
+                    isMobileLayout ? "px-2 py-2 text-xs" : "px-3 py-2 text-sm"
+                  } rounded-md transition ${
                     activePane === "queue"
                       ? "bg-neutral-700 text-white"
                       : "text-gray-300 hover:bg-neutral-800"
@@ -86,22 +100,19 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <div className="flex-1 min-h-0 overflow-hidden p-3 pt-2">
+            <div className={`flex-1 min-h-0 overflow-hidden ${isMobileLayout ? "p-2 pt-2" : "p-3 pt-2"}`}>
               {activePane === "playlists" && (
                 <div className="h-full min-h-0 rounded-xl overflow-hidden border border-neutral-800 bg-neutral-900 shadow-[0_8px_24px_rgba(0,0,0,0.35)]">
                   <PlaylistSidebar
                     playlists={playlists}
-                    onSelect={setSelectedPlaylist}
+                    onSelect={handleSelectPlaylist}
                     forceExpanded={true}
                   />
                 </div>
               )}
 
               {activePane === "tracks" && (
-                <div className="h-full min-h-0 p-3 border border-neutral-800 rounded-xl overflow-hidden bg-neutral-900 shadow-[0_8px_24px_rgba(0,0,0,0.35)] flex flex-col">
-                  <h2 className="text-lg md:text-xl font-bold mb-3 text-gray-50 truncate shrink-0">
-                    {selectedPlaylist?.name || "Keine Playlist ausgewählt"}
-                  </h2>
+                <div className={`h-full min-h-0 ${isMobileLayout ? "p-2.5" : "p-3"} border border-neutral-800 rounded-xl overflow-hidden bg-neutral-900 shadow-[0_8px_24px_rgba(0,0,0,0.35)] flex flex-col`}>
                   <div className="flex-1 min-h-0">
                     <PlaylistTracks playlist={selectedPlaylist} />
                   </div>
@@ -109,7 +120,7 @@ export default function DashboardPage() {
               )}
 
               {activePane === "queue" && (
-                <div className="h-full min-h-0 p-3 border border-neutral-800 rounded-xl bg-neutral-900 overflow-hidden shadow-[0_8px_24px_rgba(0,0,0,0.35)]">
+                <div className={`h-full min-h-0 ${isMobileLayout ? "p-2.5" : "p-3"} border border-neutral-800 rounded-xl bg-neutral-900 overflow-hidden shadow-[0_8px_24px_rgba(0,0,0,0.35)]`}>
                   <div className="h-full min-h-0">
                     <PartyQueue />
                   </div>
@@ -129,14 +140,11 @@ export default function DashboardPage() {
           >
             {/* 1️⃣ Playlist Sidebar */}
             <div className="bg-neutral-950 p-4 min-w-0">
-              <PlaylistSidebar playlists={playlists} onSelect={setSelectedPlaylist} />
+              <PlaylistSidebar playlists={playlists} onSelect={handleSelectPlaylist} />
             </div>
 
             {/* 2️⃣ Playlist Tracks */}
             <div className="p-4 border-r border-neutral-800 min-w-0 flex flex-col">
-              <h2 className="text-2xl font-bold mb-4 text-gray-50 truncate shrink-0">
-                {selectedPlaylist?.name || "Keine Playlist ausgewählt"}
-              </h2>
               <div className="flex-1 min-h-0">
                 <PlaylistTracks playlist={selectedPlaylist} />
               </div>
@@ -153,7 +161,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Footer */}
-      <footer className="h-20 md:h-24 border-t border-neutral-800 shrink-0 bg-neutral-950/95 backdrop-blur pb-[env(safe-area-inset-bottom)]">
+      <footer className={`${isMobileLayout ? "h-16" : "h-20 md:h-24"} border-t border-neutral-800 shrink-0 bg-neutral-950/95 backdrop-blur pb-[env(safe-area-inset-bottom)]`}>
         <FooterPlayer />
       </footer>
     </div>
