@@ -93,3 +93,44 @@ export async function playTrackList(uris: string[]) {
     body: JSON.stringify({ uris }),
   });
 }
+
+export async function searchTracks(
+  query: string,
+  limit = 50
+): Promise<Track[]> {
+  const trimmed = query.trim();
+  if (!trimmed) return [];
+
+  const token = await getSpotifyToken();
+  const params = new URLSearchParams({
+    q: trimmed,
+    type: "track",
+    limit: String(limit),
+  });
+
+  const res = await fetch(`https://api.spotify.com/v1/search?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+
+  if (!res.ok) {
+    console.error("Fehler bei Spotify Suche:", await res.text());
+    return [];
+  }
+
+  const data = await res.json();
+  const items = data?.tracks?.items ?? [];
+
+  return items
+    .filter((item: any) => item?.id && item?.uri)
+    .map((item: any) => ({
+      id: item.id,
+      name: item.name,
+      artist: item.artists.map((a: any) => a.name).join(", "),
+      uri: item.uri,
+      albumArt: item.album?.images?.[0]?.url,
+      durationMs: item.duration_ms,
+      progressMs: 0,
+      isplaying: false,
+    }));
+}

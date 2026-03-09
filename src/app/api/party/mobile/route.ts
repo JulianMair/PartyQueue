@@ -29,6 +29,7 @@ export async function GET(req: Request) {
 
   return NextResponse.json({
     partyId: state.id,
+    version: state.version,
     top10,
   });
 }

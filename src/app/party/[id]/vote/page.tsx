@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, use } from "react";
+import { useEffect, useMemo, useRef, useState, use } from "react";
 import { PartyTrack } from "@/app/lib/providers/types";
 
 /* -------------------------------------------------------------------------- */
@@ -36,12 +36,24 @@ function getClientId(): string {
 /*                      FRONTEND LOCAL VOTE TRACKING                           */
 /* -------------------------------------------------------------------------- */
 
-function hasVoted(partyId: string, trackId: string): boolean {
-  return localStorage.getItem(`vote_${partyId}_${trackId}`) === "1";
-}
-
 function markVoted(partyId: string, trackId: string) {
   localStorage.setItem(`vote_${partyId}_${trackId}`, "1");
+}
+
+function loadVotedSet(partyId: string, tracks: PartyTrack[]) {
+  const voted = new Set<string>();
+  for (const track of tracks) {
+    if (localStorage.getItem(`vote_${partyId}_${track.id}`) === "1") {
+      voted.add(track.id);
+    }
+  }
+  return voted;
+}
+
+function getTop10Signature(top10: PartyTrack[]) {
+  return top10
+    .map((track) => `${track.id}:${track.votes}:${track.addedAt}`)
+    .join("|");
 }
 
 /* -------------------------------------------------------------------------- */
@@ -53,43 +65,78 @@ export default function MobileVotePage({ params }: { params: Promise<{ id: strin
 
   const [songs, setSongs] = useState<PartyTrack[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [votedTrackIds, setVotedTrackIds] = useState<Set<string>>(new Set());
+  const [pendingVoteTrackIds, setPendingVoteTrackIds] = useState<Set<string>>(new Set());
+  const inFlightRef = useRef(false);
+  const top10SignatureRef = useRef("");
+  const versionRef = useRef(0);
 
   /* -------------------------------------------------------------------------- */
   /*                            LOAD TOP 10 SONGS                               */
   /* -------------------------------------------------------------------------- */
 
   const load = async () => {
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
     try {
-      const res = await fetch(`/api/party/mobile?partyId=${partyId}`);
-
-      const text = await res.text();
-      let data: any;
-      try {
-        data = JSON.parse(text);
-      } catch {
-        console.error("API liefert HTML statt JSON:", text);
-        setError("Serverfehler: Ungültige Antwort.");
-        return;
-      }
+      const res = await fetch(`/api/party/mobile?partyId=${partyId}`, {
+        cache: "no-store",
+      });
+      const data = await res.json();
 
       if (!res.ok) {
         setError(data.error || "Fehler beim Laden");
-        setSongs([]);
         return;
       }
 
       setError(null);
-      setSongs(data.top10 || []);
+      const top10 = Array.isArray(data.top10) ? (data.top10 as PartyTrack[]) : [];
+      const nextSignature = getTop10Signature(top10);
+      if (nextSignature !== top10SignatureRef.current) {
+        top10SignatureRef.current = nextSignature;
+        setSongs(top10);
+        setVotedTrackIds(loadVotedSet(partyId, top10));
+      }
+
+      if (typeof data.version === "number") {
+        versionRef.current = data.version;
+      }
     } catch (e) {
       console.error("[Mobile] Fehler beim Laden:", e);
       setError("Netzwerkfehler");
+    } finally {
+      inFlightRef.current = false;
     }
   };
 
   useEffect(() => {
-    load();
-    const timer = setInterval(load, 1000);
-    return () => clearInterval(timer);
+    let isCancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const run = async () => {
+      if (isCancelled) return;
+      await load();
+
+      if (isCancelled) return;
+      const nextDelay = document.hidden ? 3500 : 1500;
+      timer = setTimeout(run, nextDelay);
+    };
+
+    void run();
+
+    const onVisibilityChange = () => {
+      if (isCancelled) return;
+      if (!document.hidden) {
+        void load();
+      }
+    };
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      isCancelled = true;
+      if (timer) clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   }, [partyId]);
 
   /* -------------------------------------------------------------------------- */
@@ -97,18 +144,95 @@ export default function MobileVotePage({ params }: { params: Promise<{ id: strin
   /* -------------------------------------------------------------------------- */
 
   const vote = async (trackId: string) => {
-    if (hasVoted(partyId, trackId)) return;
+    if (votedTrackIds.has(trackId) || pendingVoteTrackIds.has(trackId)) return;
 
     const clientId = getClientId();
+    const previousSongs = songs;
 
-    await fetch("/api/party/vote", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ partyId, trackId, clientId }),
+    setPendingVoteTrackIds((prev) => {
+      const next = new Set(prev);
+      next.add(trackId);
+      return next;
     });
 
-    markVoted(partyId, trackId); // sofort sperren
+    setSongs((prev) => {
+      const idx = prev.findIndex((song) => song.id === trackId);
+      if (idx < 0) return prev;
+
+      const next = prev.map((song, index) =>
+        index === idx ? { ...song, votes: song.votes + 1 } : song
+      );
+      const votedSong = next[idx];
+      let current = idx;
+      while (
+        current > 0 &&
+        (next[current].votes > next[current - 1].votes ||
+          (next[current].votes === next[current - 1].votes &&
+            next[current].addedAt < next[current - 1].addedAt))
+      ) {
+        const tmp = next[current - 1];
+        next[current - 1] = next[current];
+        next[current] = tmp;
+        current -= 1;
+      }
+
+      if (!votedSong) return prev;
+      top10SignatureRef.current = getTop10Signature(next);
+      return next;
+    });
+
+    try {
+      const res = await fetch("/api/party/vote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ partyId, trackId, clientId }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.status === "not_found") {
+        setSongs(previousSongs);
+        top10SignatureRef.current = getTop10Signature(previousSongs);
+        return;
+      }
+
+      if (data.status === "ok" || data.status === "duplicate") {
+        markVoted(partyId, trackId);
+        setVotedTrackIds((prev) => {
+          const next = new Set(prev);
+          next.add(trackId);
+          return next;
+        });
+      }
+
+      if (Array.isArray(data.top10)) {
+        const serverTop10 = data.top10 as PartyTrack[];
+        const nextSignature = getTop10Signature(serverTop10);
+        if (nextSignature !== top10SignatureRef.current) {
+          top10SignatureRef.current = nextSignature;
+          setSongs(serverTop10);
+        }
+      }
+
+      if (typeof data.version === "number") {
+        versionRef.current = data.version;
+      }
+    } catch {
+      setSongs(previousSongs);
+      top10SignatureRef.current = getTop10Signature(previousSongs);
+    } finally {
+      setPendingVoteTrackIds((prev) => {
+        const next = new Set(prev);
+        next.delete(trackId);
+        return next;
+      });
+    }
   };
+
+  const votedOrPending = useMemo(() => {
+    const combined = new Set(votedTrackIds);
+    pendingVoteTrackIds.forEach((id) => combined.add(id));
+    return combined;
+  }, [pendingVoteTrackIds, votedTrackIds]);
 
   /* -------------------------------------------------------------------------- */
   /*                                   UI                                       */
@@ -131,11 +255,11 @@ export default function MobileVotePage({ params }: { params: Promise<{ id: strin
       {/* SCROLLABLE SONG LIST */}
       <div className="space-y-3 max-h-[75vh] overflow-y-auto pr-1">
         {songs.map((s, i) => {
-          const voted = hasVoted(partyId, s.id);
+          const voted = votedOrPending.has(s.id);
 
           return (
             <div
-              key={s.id}
+              key={`${s.id}-${s.addedAt}`}
               className="flex items-center gap-4 bg-neutral-900 border border-neutral-800 rounded-lg p-3"
             >
               {/* Album Art */}

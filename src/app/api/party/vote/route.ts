@@ -4,8 +4,11 @@ import { NextResponse } from "next/server";
 export async function POST(req: Request) {
   const { partyId, trackId, clientId } = await req.json();
 
-  if (!clientId) {
-    return NextResponse.json({ error: "clientId missing" }, { status: 400 });
+  if (!partyId || !trackId || !clientId) {
+    return NextResponse.json(
+      { error: "partyId, trackId und clientId sind erforderlich" },
+      { status: 400 }
+    );
   }
 
   const manager = await partyRegistry.getParty(partyId);
@@ -13,7 +16,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Party not found" }, { status: 404 });
   }
 
-  await manager.vote(trackId, clientId);
+  const result = manager.vote(trackId, clientId);
 
-  return NextResponse.json({ success: true });
+  return NextResponse.json({
+    success: result.status !== "not_found",
+    status: result.status,
+    top10: result.top10,
+    version: result.version,
+  });
 }

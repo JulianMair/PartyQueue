@@ -42,6 +42,7 @@ export interface MusicProvider {
   // Playlist-Funktionen
   getPlaylists(): Promise<Playlist[]>;
   getPlaylistTracks(playlistId: string, offset?: number, limit?: number): Promise<{ tracks: Track[]; next: string | null }>;
+  searchTracks(query: string, limit?: number): Promise<Track[]>;
   playPlaylist(playlistId: string): Promise<void>;
 
 }

@@ -11,6 +11,10 @@ interface PlaylistTracksProps {
 
 export default function PlaylistTracks({ playlist }: PlaylistTracksProps) {
   const [tracks, setTracks] = useState<Track[]>([]);
+  const [searchTracks, setSearchTracks] = useState<Track[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
@@ -19,6 +23,8 @@ export default function PlaylistTracks({ playlist }: PlaylistTracksProps) {
   const [addingPlaylist, setAddingPlaylist] = useState(false);
   const [playlistAddMessage, setPlaylistAddMessage] = useState<string | null>(null);
   const { partyId, isPartyActive } = useParty();
+  const isSearching = searchQuery.trim().length >= 2;
+  const displayedTracks = isSearching ? searchTracks : tracks;
 
   // --- EXISTIERENDE useCallback fetchTracks() ---
   const fetchTracks = useCallback(async () => {
@@ -52,13 +58,49 @@ export default function PlaylistTracks({ playlist }: PlaylistTracksProps) {
   }, [playlist]);
 
   useEffect(() => {
-    if (playlist) fetchTracks();
-  }, [playlist, fetchTracks]);
+    if (playlist && !isSearching) fetchTracks();
+  }, [playlist, fetchTracks, isSearching]);
+
+  useEffect(() => {
+    if (!isSearching) {
+      setSearchTracks([]);
+      setSearchError(null);
+      setSearchLoading(false);
+      return;
+    }
+
+    let isCancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        setSearchLoading(true);
+        setSearchError(null);
+        const q = encodeURIComponent(searchQuery.trim());
+        const res = await fetch(`/api/music/search?q=${q}&limit=50`, {
+          cache: "no-store",
+        });
+        const data = await res.json();
+        if (isCancelled) return;
+        if (!res.ok) throw new Error(data.error || "Fehler bei der Suche");
+        setSearchTracks(Array.isArray(data.tracks) ? data.tracks : []);
+      } catch (err: any) {
+        if (isCancelled) return;
+        setSearchError(err?.message || "Fehler bei der Suche");
+        setSearchTracks([]);
+      } finally {
+        if (!isCancelled) setSearchLoading(false);
+      }
+    }, 300);
+
+    return () => {
+      isCancelled = true;
+      clearTimeout(timer);
+    };
+  }, [isSearching, searchQuery]);
 
   const lastTrackRef = useCallback(
     (node: HTMLLIElement | null) => {
-      if (loading) return;
-      if (observer.current) observer.current.disconnect();
+    if (loading || isSearching) return;
+    if (observer.current) observer.current.disconnect();
 
       observer.current = new IntersectionObserver((entries) => {
         if (entries[0].isIntersecting && hasMore) {
@@ -68,7 +110,7 @@ export default function PlaylistTracks({ playlist }: PlaylistTracksProps) {
 
       if (node) observer.current.observe(node);
     },
-    [loading, hasMore, fetchTracks]
+    [loading, hasMore, fetchTracks, isSearching]
   );
 
   const playTrack = async (track: Track) => {
@@ -146,23 +188,37 @@ export default function PlaylistTracks({ playlist }: PlaylistTracksProps) {
     return `${min}:${sec.toString().padStart(2, "0")}`;
   };
 
-  if (!playlist)
-    return (
-      <div className="text-gray-500 p-6">
-        🎵 Wähle links eine Playlist aus, um Songs zu sehen.
-      </div>
-    );
-
   return (
     <div className="h-full overflow-y-auto scrollbar-thin scrollbar-thumb-neutral-700 scrollbar-track-neutral-900 pr-2">
       <div className="sticky top-0 z-10 pb-3 mb-3 border-b border-neutral-800 bg-neutral-950">
+        <div className="flex items-center gap-2 mb-2">
+          <input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Spotify Songs suchen..."
+            className="flex-1 px-3 py-2 bg-neutral-900 border border-neutral-700 rounded-lg text-sm text-gray-100 placeholder:text-gray-500"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery("")}
+              className="px-3 py-2 text-xs rounded-md bg-neutral-800 text-gray-300 hover:bg-neutral-700"
+            >
+              Reset
+            </button>
+          )}
+        </div>
+
         <div className="flex items-center justify-between gap-3">
-          <p className="text-sm text-gray-400 truncate">{playlist.name}</p>
+          <p className="text-sm text-gray-400 truncate">
+            {isSearching
+              ? `Suche: "${searchQuery.trim()}"`
+              : playlist?.name || "Keine Playlist ausgewählt"}
+          </p>
           <button
             onClick={addPlaylistToParty}
-            disabled={!isPartyActive || addingPlaylist}
+            disabled={!isPartyActive || addingPlaylist || !playlist || isSearching}
             className={`px-3 py-1 text-sm rounded-md transition ${
-              !isPartyActive || addingPlaylist
+              !isPartyActive || addingPlaylist || !playlist || isSearching
                 ? "bg-green-800 text-gray-300 cursor-not-allowed"
                 : "bg-green-600 hover:bg-green-700 text-white"
             }`}
@@ -173,13 +229,16 @@ export default function PlaylistTracks({ playlist }: PlaylistTracksProps) {
         {playlistAddMessage && (
           <p className="text-xs text-gray-400 mt-2">{playlistAddMessage}</p>
         )}
+        {searchError && (
+          <p className="text-xs text-red-400 mt-2">{searchError}</p>
+        )}
       </div>
 
       <ul className="space-y-2">
-        {tracks.map((track, i) => (
+        {displayedTracks.map((track, i) => (
           <li
-            key={track.id}
-            ref={i === tracks.length - 1 ? lastTrackRef : null}
+            key={`${track.id}-${track.uri}`}
+            ref={!isSearching && i === displayedTracks.length - 1 ? lastTrackRef : null}
             className="flex items-center gap-4 bg-neutral-900 border border-neutral-800 rounded-lg p-3 hover:bg-neutral-800 transition"
           >
             <p className="w-6 text-gray-500">{i + 1}</p>
@@ -219,9 +278,24 @@ export default function PlaylistTracks({ playlist }: PlaylistTracksProps) {
         ))}
       </ul>
 
-      {loading && (
+      {searchLoading && (
+        <p className="text-center text-gray-400 py-4 animate-pulse">
+          🔎 Suche läuft...
+        </p>
+      )}
+      {loading && !isSearching && (
         <p className="text-center text-gray-400 py-4 animate-pulse">
           ⏳ Lade weitere Songs...
+        </p>
+      )}
+      {!playlist && !isSearching && displayedTracks.length === 0 && (
+        <p className="text-gray-500 p-6 text-center">
+          🎵 Wähle links eine Playlist oder nutze die Suche.
+        </p>
+      )}
+      {isSearching && !searchLoading && displayedTracks.length === 0 && (
+        <p className="text-gray-500 p-6 text-center">
+          Keine Suchergebnisse.
         </p>
       )}
       <div className="text-center text-gray-500 py-4"></div>

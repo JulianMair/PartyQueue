@@ -9,6 +9,7 @@ class PartyRegistry {
   private readonly partyMeta: Map<string, PartyMetadata> = new Map();
   private readonly store = new PartyStore();
   private readonly defaultProvider = "spotify";
+  private readonly persistTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
   private initialized = false;
   private initPromise: Promise<void> | null = null;
 
@@ -63,8 +64,20 @@ class PartyRegistry {
 
   private attachPersistence(manager: PartyManager, partyId: string) {
     manager.on("stateChanged", () => {
-      void this.persistParty(partyId);
+      this.schedulePersist(partyId);
     });
+  }
+
+  private schedulePersist(partyId: string, delayMs = 150) {
+    const existing = this.persistTimers.get(partyId);
+    if (existing) clearTimeout(existing);
+
+    const timer = setTimeout(() => {
+      this.persistTimers.delete(partyId);
+      void this.persistParty(partyId);
+    }, delayMs);
+
+    this.persistTimers.set(partyId, timer);
   }
 
   private async persistParty(partyId: string) {
@@ -202,6 +215,12 @@ class PartyRegistry {
     const party = await this.getParty(partyId);
     if (party) {
       party.stopParty();
+    }
+
+    const timer = this.persistTimers.get(partyId);
+    if (timer) {
+      clearTimeout(timer);
+      this.persistTimers.delete(partyId);
     }
 
     this.parties.delete(partyId);

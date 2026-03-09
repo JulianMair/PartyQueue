@@ -7,6 +7,15 @@ export interface PartyState {
   queue: PartyTrack[];
   currentTrack?: PartyTrack;
   isActive: boolean;
+  version: number;
+}
+
+export type VoteResultStatus = "ok" | "duplicate" | "not_found";
+
+export interface VoteResult {
+  status: VoteResultStatus;
+  top10: PartyTrack[];
+  version: number;
 }
 
 export class PartyManager extends EventEmitter {
@@ -28,6 +37,7 @@ export class PartyManager extends EventEmitter {
       queue: initialState?.queue ?? [],
       currentTrack: initialState?.currentTrack,
       isActive: initialState?.isActive ?? false,
+      version: initialState?.version ?? 0,
     };
     this.provider = provider;
     if (initialVotedByClient) {
@@ -61,9 +71,22 @@ export class PartyManager extends EventEmitter {
     };
   }
 
+  private bumpVersion() {
+    this.state.version += 1;
+  }
+
+  private getTop10() {
+    return this.state.queue.slice(0, 10);
+  }
+
+  private trackShouldComeBefore(a: PartyTrack, b: PartyTrack) {
+    return a.votes > b.votes || (a.votes === b.votes && a.addedAt < b.addedAt);
+  }
+
   async startParty() {
     this.state.isActive = true;
     this.startSync();
+    this.bumpVersion();
     this.emit("partyStarted", this.state);
     this.emit("stateChanged", this.state);
     console.log(`[PartyManager] Party ${this.state.id} gestartet`);
@@ -73,6 +96,7 @@ export class PartyManager extends EventEmitter {
     this.state.isActive = false;
     if (this.syncInterval) clearInterval(this.syncInterval);
     this.syncInterval = null;
+    this.bumpVersion();
     this.emit("stateChanged", this.state);
     console.log(`[PartyManager] Party ${this.state.id} gestoppt`);
   }
@@ -95,6 +119,7 @@ export class PartyManager extends EventEmitter {
 
     this.state.queue.push(...partyTracks);
     this.sortQueue();
+    this.bumpVersion();
     this.emit("queueUpdated", this.state.queue);
     this.emit("stateChanged", this.state);
 
@@ -143,6 +168,7 @@ export class PartyManager extends EventEmitter {
     const [moved] = this.state.queue.splice(fromIndex, 1);
     this.state.queue.splice(toIndex, 0, moved);
 
+    this.bumpVersion();
     this.emit("queueUpdated", this.state.queue);
     this.emit("stateChanged", this.state);
   }
@@ -156,39 +182,65 @@ export class PartyManager extends EventEmitter {
       this.voted.forEach((tracks) => tracks.delete(removed.id));
     }
 
+    this.bumpVersion();
     this.emit("queueUpdated", this.state.queue);
     this.emit("stateChanged", this.state);
   }
 
   /** VOTING → beeinflusst NUR die interne Queue */
-async vote(trackId: string, clientId: string) {
-  // Falls es den client noch nicht gibt → Set anlegen
-  if (!this.voted.has(clientId)) {
-    this.voted.set(clientId, new Set());
+  vote(trackId: string, clientId: string): VoteResult {
+    if (!this.voted.has(clientId)) {
+      this.voted.set(clientId, new Set());
+    }
+
+    const votedTracks = this.voted.get(clientId)!;
+    if (votedTracks.has(trackId)) {
+      return {
+        status: "duplicate",
+        top10: this.getTop10(),
+        version: this.state.version,
+      };
+    }
+
+    const index = this.state.queue.findIndex((t) => t.id === trackId);
+    if (index < 0) {
+      return {
+        status: "not_found",
+        top10: this.getTop10(),
+        version: this.state.version,
+      };
+    }
+
+    votedTracks.add(trackId);
+
+    this.state.queue[index].votes += 1;
+
+    // Vote erhöht nur einen Track, daher reicht lokales Hochziehen statt kompletter Sort.
+    let currentIndex = index;
+    while (
+      currentIndex > 0 &&
+      this.trackShouldComeBefore(
+        this.state.queue[currentIndex],
+        this.state.queue[currentIndex - 1]
+      )
+    ) {
+      const tmp = this.state.queue[currentIndex - 1];
+      this.state.queue[currentIndex - 1] = this.state.queue[currentIndex];
+      this.state.queue[currentIndex] = tmp;
+      currentIndex -= 1;
+    }
+
+    this.bumpVersion();
+    this.emit("queueUpdated", this.state.queue);
+    this.emit("stateChanged", this.state);
+
+    console.log(`Vote akzeptiert: ${trackId}`);
+    return {
+      status: "ok",
+      top10: this.getTop10(),
+      version: this.state.version,
+    };
   }
-
-  const votedTracks = this.voted.get(clientId)!;
-
-  // Wenn dieses Gerät schon für diesen Track gevotet hat → abbrechen
-  if (votedTracks.has(trackId)) {
-    console.log(`Client ${clientId} hat Track ${trackId} bereits gevotet`);
-    return;
-  }
-
-  // Markiere den Track für diesen Client als gevotet
-  votedTracks.add(trackId);
-
-  // Punkte erhöhen
-  const track = this.state.queue.find((t) => t.id === trackId);
-  if (!track) return;
-
-  track.votes++;
-  this.sortQueue();
-  this.emit("queueUpdated", this.state.queue);
-  this.emit("stateChanged", this.state);
-
-  console.log(`Vote akzeptiert: ${track.name} (${track.votes})`);
-}
 
 
   /** Intern: sortiere Queue nach Votes + Zeit */
@@ -217,6 +269,7 @@ async vote(trackId: string, clientId: string) {
     this.voted.forEach((tracks) => tracks.delete(next.id));
 
     await this.provider.play(next.uri);
+    this.bumpVersion();
     this.emit("trackStarted", next);
     this.emit("queueUpdated", this.state.queue);
     this.emit("stateChanged", this.state);
@@ -267,6 +320,7 @@ async vote(trackId: string, clientId: string) {
           (t) => t.uri !== spotifyUri
         );
 
+        this.bumpVersion();
         this.emit("trackStarted", newTrack);
         this.emit("queueUpdated", this.state.queue);
         this.emit("stateChanged", this.state);

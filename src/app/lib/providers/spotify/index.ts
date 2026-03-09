@@ -40,5 +40,6 @@ export class SpotifyProvider implements MusicProvider {
 
   getPlaylists = Playlists.getPlaylists;
   getPlaylistTracks = Playlists.getPlaylistTracks;
+  searchTracks = Playlists.searchTracks;
   playPlaylist = Playlists.playPlaylist;
 }
