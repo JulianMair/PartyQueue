@@ -28,6 +28,10 @@ export class PartyManager extends EventEmitter {
   private provider: MusicProvider;
   private syncInterval: NodeJS.Timeout | null = null;
   private voted: Map<string, Set<string>> = new Map();
+  private playedTrackIds: Set<string> = new Set();
+  private fadeDurationSeconds = 0;
+  private transitionInProgress = false;
+  private lastVoteAt = 0;
 
 
   constructor(
@@ -53,6 +57,9 @@ export class PartyManager extends EventEmitter {
         ])
       );
     }
+    if (initialState?.currentTrack?.id) {
+      this.playedTrackIds.add(initialState.currentTrack.id);
+    }
   }
 
   getState() {
@@ -66,6 +73,18 @@ export class PartyManager extends EventEmitter {
         Array.from(tracks),
       ])
     );
+  }
+
+  getPlayedTrackIds() {
+    return Array.from(this.playedTrackIds);
+  }
+
+  getLastVoteAt() {
+    return this.lastVoteAt;
+  }
+
+  setFadeDurationSeconds(seconds: number) {
+    this.fadeDurationSeconds = Math.min(12, Math.max(0, Number(seconds) || 0));
   }
 
   private toPartyTrack(track: Track): PartyTrack {
@@ -113,7 +132,19 @@ export class PartyManager extends EventEmitter {
 
   /** MEHRERE SONGS ZUR PARTYQUEUE HINZUFÜGEN (nur intern!) */
   async addTracks(tracks: Track[]) {
-    const validTracks = tracks.filter((track) => track?.id && track?.uri);
+    const existingIds = new Set(
+      this.state.queue
+        .map((track) => track.id)
+        .concat(this.state.currentTrack?.id ?? [])
+    );
+    const batchIds = new Set<string>();
+    const validTracks = tracks.filter((track) => {
+      if (!track?.id || !track?.uri) return false;
+      if (existingIds.has(track.id)) return false;
+      if (batchIds.has(track.id)) return false;
+      batchIds.add(track.id);
+      return true;
+    });
     if (validTracks.length === 0) return;
 
     const now = Date.now();
@@ -123,7 +154,6 @@ export class PartyManager extends EventEmitter {
     }));
 
     this.state.queue.push(...partyTracks);
-    this.sortQueue();
     this.bumpVersion();
     this.emit("queueUpdated", this.state.queue);
     this.emit("stateChanged", this.state);
@@ -192,6 +222,80 @@ export class PartyManager extends EventEmitter {
     this.emit("stateChanged", this.state);
   }
 
+  removeLowestRankedTracks(
+    count: number,
+    options?: { protectNext?: boolean; protectTopN?: number; onlyZeroVotes?: boolean }
+  ) {
+    if (count <= 0 || this.state.queue.length === 0) return [] as PartyTrack[];
+
+    const protectNext = options?.protectNext ?? true;
+    const protectTopN = Math.max(0, options?.protectTopN ?? 0);
+    const startIndex = Math.max(protectNext ? 1 : 0, protectTopN);
+    if (startIndex >= this.state.queue.length) return [] as PartyTrack[];
+
+    const removable = this.state.queue
+      .map((track, index) => ({ track, index }))
+      .filter(({ track, index }) => {
+        if (index < startIndex) return false;
+        if (options?.onlyZeroVotes && track.votes > 0) return false;
+        return true;
+      })
+      .sort((a, b) => {
+        if (a.track.votes !== b.track.votes) return a.track.votes - b.track.votes;
+        if (a.track.addedAt !== b.track.addedAt) return a.track.addedAt - b.track.addedAt;
+        return b.index - a.index;
+      })
+      .slice(0, count);
+
+    if (removable.length === 0) return [] as PartyTrack[];
+
+    const indicesToRemove = removable.map((item) => item.index).sort((a, b) => b - a);
+    const removed: PartyTrack[] = [];
+    for (const index of indicesToRemove) {
+      const [track] = this.state.queue.splice(index, 1);
+      if (track) {
+        removed.push(track);
+        this.voted.forEach((tracks) => tracks.delete(track.id));
+      }
+    }
+
+    this.bumpVersion();
+    this.emit("queueUpdated", this.state.queue);
+    this.emit("stateChanged", this.state);
+
+    return removed;
+  }
+
+  removeTracksFromTail(
+    count: number,
+    options?: { protectNext?: boolean; protectTopN?: number }
+  ) {
+    if (count <= 0 || this.state.queue.length === 0) return [] as PartyTrack[];
+
+    const protectNext = options?.protectNext ?? true;
+    const protectTopN = Math.max(0, options?.protectTopN ?? 0);
+    const minProtectedIndex = Math.max(protectNext ? 1 : 0, protectTopN);
+    if (minProtectedIndex >= this.state.queue.length) return [] as PartyTrack[];
+
+    const removed: PartyTrack[] = [];
+    for (let index = this.state.queue.length - 1; index >= minProtectedIndex; index -= 1) {
+      const [track] = this.state.queue.splice(index, 1);
+      if (track) {
+        removed.push(track);
+        this.voted.forEach((tracks) => tracks.delete(track.id));
+      }
+      if (removed.length >= count) break;
+    }
+
+    if (removed.length === 0) return removed;
+
+    this.bumpVersion();
+    this.emit("queueUpdated", this.state.queue);
+    this.emit("stateChanged", this.state);
+
+    return removed;
+  }
+
   /** VOTING → beeinflusst NUR die interne Queue */
   vote(trackId: string, clientId: string): VoteResult {
     if (!this.voted.has(clientId)) {
@@ -219,6 +323,7 @@ export class PartyManager extends EventEmitter {
     votedTracks.add(trackId);
 
     this.state.queue[index].votes += 1;
+    this.lastVoteAt = Date.now();
 
     // Vote erhöht nur einen Track, daher reicht lokales Hochziehen statt kompletter Sort.
     let currentIndex = index;
@@ -270,6 +375,7 @@ export class PartyManager extends EventEmitter {
     const track = this.state.queue[index];
     track.votes = Math.max(0, track.votes - 1);
     votedTracks.delete(trackId);
+    this.lastVoteAt = Date.now();
 
     // Bei weniger Votes kann der Track nach unten rutschen.
     let currentIndex = index;
@@ -314,22 +420,109 @@ export class PartyManager extends EventEmitter {
   }
 
   /** STARTE DEN NÄCHSTEN TRACK SOFORT */
-  public async playNextTrack() {
-    if (this.state.queue.length === 0) return;
+  public async playNextTrack(applyFade = true) {
+    if (this.state.queue.length === 0 || this.transitionInProgress) return;
+    this.transitionInProgress = true;
 
-    const next = this.state.queue.shift()!;
-    
-    this.state.currentTrack = next;
+    const playNextInternal = async () => {
+      if (this.state.queue.length === 0) return false;
+      const next = this.state.queue[0];
+      if (!next) return false;
 
-    this.voted.forEach((tracks) => tracks.delete(next.id));
+      try {
+        await this.provider.play(next.uri);
+      } catch (err) {
+        console.error("[PartyManager] Konnte nächsten Track nicht starten:", err);
+        return false;
+      }
 
-    await this.provider.play(next.uri);
-    this.bumpVersion();
-    this.emit("trackStarted", next);
-    this.emit("queueUpdated", this.state.queue);
-    this.emit("stateChanged", this.state);
+      this.state.queue.shift();
+      this.state.currentTrack = next;
+      this.playedTrackIds.add(next.id);
+      this.voted.forEach((tracks) => tracks.delete(next.id));
 
-    console.log(`[PartyManager] Spiele nächsten Track: ${next.name}`);
+      this.bumpVersion();
+      this.emit("trackStarted", next);
+      this.emit("queueUpdated", this.state.queue);
+      this.emit("stateChanged", this.state);
+
+      console.log(`[PartyManager] Spiele nächsten Track: ${next.name}`);
+      return true;
+    };
+
+    const wait = (ms: number) =>
+      new Promise((resolve) => setTimeout(resolve, ms));
+
+    const safeSetVolume = async (volumePercent: number) => {
+      try {
+        await this.provider.setVolume(volumePercent);
+        return true;
+      } catch (err) {
+        console.error("[PartyManager] Konnte Lautstärke nicht setzen:", err);
+        return false;
+      }
+    };
+
+    try {
+      const totalFadeMs = applyFade
+        ? Math.round(this.fadeDurationSeconds * 1000)
+        : 0;
+      const halfFadeMs = Math.floor(totalFadeMs / 2);
+      if (totalFadeMs <= 0) {
+        await playNextInternal();
+        return;
+      }
+
+      let playback: any = null;
+      try {
+        playback = await this.provider.getCurrentPlayback();
+      } catch (err) {
+        console.error("[PartyManager] Playback für Fade konnte nicht geladen werden:", err);
+      }
+      const currentVolume =
+        typeof playback?.device?.volume_percent === "number"
+          ? playback.device.volume_percent
+          : null;
+
+      if (currentVolume === null) {
+        await playNextInternal();
+        return;
+      }
+
+      const steps = Math.max(3, Math.min(12, Math.floor(this.fadeDurationSeconds * 4)));
+      const stepDelayMs = Math.max(60, Math.floor(halfFadeMs / steps));
+      let fadeOutWorked = true;
+
+      for (let step = steps - 1; step >= 0; step -= 1) {
+        const volume = Math.round((currentVolume * step) / steps);
+        const ok = await safeSetVolume(volume);
+        if (!ok) {
+          fadeOutWorked = false;
+          break;
+        }
+        await wait(stepDelayMs);
+      }
+
+      const didStartNext = await playNextInternal();
+      if (!didStartNext) {
+        await safeSetVolume(currentVolume);
+        return;
+      }
+
+      if (!fadeOutWorked) {
+        await safeSetVolume(currentVolume);
+        return;
+      }
+
+      for (let step = 1; step <= steps; step += 1) {
+        const volume = Math.round((currentVolume * step) / steps);
+        const ok = await safeSetVolume(volume);
+        if (!ok) break;
+        await wait(stepDelayMs);
+      }
+    } finally {
+      this.transitionInProgress = false;
+    }
   }
 
   /** HAUPT-SYNC LOGIK */
@@ -350,6 +543,8 @@ export class PartyManager extends EventEmitter {
         }
       */
 
+      if (!spotifyItem) return;
+
       const spotifyUri = spotifyItem.uri;
       const currentUri = this.state.currentTrack?.uri;
 
@@ -369,6 +564,9 @@ export class PartyManager extends EventEmitter {
         };
 
         this.state.currentTrack = newTrack;
+        if (newTrack.id) {
+          this.playedTrackIds.add(newTrack.id);
+        }
 
         // Entferne aus unserer PartyQueue, falls er drin war
         this.state.queue = this.state.queue.filter(
@@ -385,11 +583,19 @@ export class PartyManager extends EventEmitter {
       const progress = playback.progress_ms ?? 0;
       const duration = spotifyItem.duration_ms ?? 0;
       const remaining = duration - progress;
+      if (!isPlaying) return;
 
-      if (remaining < 1500) {
+      const transitionWindowMs = Math.max(
+        1500,
+        Math.round(this.fadeDurationSeconds * 1000) + 800
+      );
+
+      if (remaining < transitionWindowMs) {
         console.log("[PartyManager] Song endet bald → bereite nächsten vor");
 
-        await this.playNextTrack();
+        if (!this.transitionInProgress) {
+          await this.playNextTrack();
+        }
       }
     } catch (err) {
       console.error("[PartyManager] Sync-Fehler:", err);

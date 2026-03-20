@@ -1,13 +1,11 @@
-import { getSpotifyToken } from "./auth";
+import { spotifyApiFetch } from "./auth";
 import { Track } from "../types";
 
 export async function getCurrentTrack(): Promise<Track | null> {
-  const token = await getSpotifyToken();
-  const res = await fetch("https://api.spotify.com/v1/me/player/currently-playing", {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const res = await spotifyApiFetch("https://api.spotify.com/v1/me/player/currently-playing");
 
   if (res.status === 204) return null;
+  if (!res.ok) throw new Error("Failed to fetch current track");
 
   const data = await res.json();
   return {
@@ -23,46 +21,40 @@ export async function getCurrentTrack(): Promise<Track | null> {
 }
 
 export async function play(uri?: string): Promise<void> {
-  const token = await getSpotifyToken();
-  await fetch("https://api.spotify.com/v1/me/player/play", {
+  await spotifyApiFetch("https://api.spotify.com/v1/me/player/play", {
     method: "PUT",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
+    headers: { "Content-Type": "application/json" },
     body: uri ? JSON.stringify({ uris: [uri] }) : undefined,
   });
 }
 
 export async function pause(): Promise<void> {
-  const token = await getSpotifyToken();
-  await fetch("https://api.spotify.com/v1/me/player/pause", {
+  await spotifyApiFetch("https://api.spotify.com/v1/me/player/pause", {
     method: "PUT",
-    headers: { Authorization: `Bearer ${token}` },
   });
 }
 
 export async function next(): Promise<void> {
-  const token = await getSpotifyToken();
-  await fetch("https://api.spotify.com/v1/me/player/next", {
+  await spotifyApiFetch("https://api.spotify.com/v1/me/player/next", {
     method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
   });
 }
+
+export async function setVolume(volumePercent: number): Promise<void> {
+  const safeVolume = Math.max(0, Math.min(100, Math.round(volumePercent)));
+  await spotifyApiFetch(
+    `https://api.spotify.com/v1/me/player/volume?volume_percent=${safeVolume}`,
+    { method: "PUT" }
+  );
+}
 export async function queueTrack(uri: string) {
-    const token = await getSpotifyToken();
-    await fetch(`https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(uri)}`, {
+    await spotifyApiFetch(`https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(uri)}`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
     });
 }
 export async function getCurrentPlayback() {
-  const token = await getSpotifyToken();
-  const res = await fetch("https://api.spotify.com/v1/me/player", {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
+  const res = await spotifyApiFetch("https://api.spotify.com/v1/me/player", {
+    headers: { "Content-Type": "application/json" },
   });
 
   console.log("Spotify /me/player status:", res.status);
@@ -77,12 +69,8 @@ export async function getCurrentPlayback() {
 }
 
 export async function getQueue() {
-  const token = await getSpotifyToken();
-  const res = await fetch("https://api.spotify.com/v1/me/player/queue", {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
+  const res = await spotifyApiFetch("https://api.spotify.com/v1/me/player/queue", {
+    headers: { "Content-Type": "application/json" },
   });
 
   if (!res.ok) {
@@ -92,4 +80,3 @@ export async function getQueue() {
 
   return await res.json(); // hat: currently_playing, queue[]
 }
-

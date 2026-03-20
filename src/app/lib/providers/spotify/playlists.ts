@@ -1,11 +1,8 @@
-import { getSpotifyToken } from "./auth";
+import { spotifyApiFetch } from "./auth";
 import { Playlist, Track } from "../types";
 
 export async function getPlaylists(): Promise<Playlist[]> {
-  const token = await getSpotifyToken();
-
-  const res = await fetch("https://api.spotify.com/v1/me/playlists?limit=50", {
-    headers: { Authorization: `Bearer ${token}` },
+  const res = await spotifyApiFetch("https://api.spotify.com/v1/me/playlists?limit=50", {
     cache: "no-store", // Edge-Caching verhindern
   });
 
@@ -37,11 +34,9 @@ export async function getPlaylistTracks(
   offset = 0,
   limit = 50
 ): Promise<{ tracks: Track[]; next: string | null }> {
-  const token = await getSpotifyToken();
-
-  const res = await fetch(
+  const res = await spotifyApiFetch(
     `https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=${limit}&offset=${offset}`,
-    { headers: { Authorization: `Bearer ${token}` } }
+    {}
   );
 
   if (!res.ok) {
@@ -62,6 +57,7 @@ export async function getPlaylistTracks(
       durationMs: item.track.duration_ms,
       progressMs: 0,
       isplaying: false,
+      explicit: Boolean(item.track.explicit),
     }));
 
   return { tracks, next: data.next };
@@ -70,26 +66,18 @@ export async function getPlaylistTracks(
 
 
 export async function playPlaylist(playlistId: string): Promise<void> {
-  const token = await getSpotifyToken();
-  await fetch("https://api.spotify.com/v1/me/player/play", {
+  await spotifyApiFetch("https://api.spotify.com/v1/me/player/play", {
     method: "PUT",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ context_uri: `spotify:playlist:${playlistId}` }),
   });
 }
 
 
 export async function playTrackList(uris: string[]) {
-  const token = await getSpotifyToken();
-  await fetch("https://api.spotify.com/v1/me/player/play", {
+  await spotifyApiFetch("https://api.spotify.com/v1/me/player/play", {
     method: "PUT",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ uris }),
   });
 }
@@ -102,7 +90,6 @@ export async function searchTracks(
   if (!trimmed) return [];
   const safeLimit = Math.min(50, Math.max(1, limit));
 
-  const token = await getSpotifyToken();
   const params = new URLSearchParams({
     q: trimmed,
     type: "track",
@@ -110,14 +97,16 @@ export async function searchTracks(
     market: "from_token",
   });
 
-  const res = await fetch(`https://api.spotify.com/v1/search?${params.toString()}`, {
-    headers: { Authorization: `Bearer ${token}` },
+  const res = await spotifyApiFetch(`https://api.spotify.com/v1/search?${params.toString()}`, {
     cache: "no-store",
   });
 
   if (!res.ok) {
-    console.error("Fehler bei Spotify Suche:", await res.text());
-    return [];
+    const details = await res.text();
+    console.error("Fehler bei Spotify Suche:", res.status, details);
+    const error = new Error("Spotify search failed") as Error & { status?: number };
+    error.status = res.status;
+    throw error;
   }
 
   const data = await res.json();
@@ -152,5 +141,6 @@ export async function searchTracks(
     durationMs: item.duration_ms,
     progressMs: 0,
     isplaying: false,
+    explicit: Boolean(item.explicit),
   }));
 }

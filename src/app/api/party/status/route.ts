@@ -24,6 +24,7 @@ export async function GET(req: Request) {
         partyId: state.id,
         name: meta?.name ?? state.id,
         isActive: state.isActive,
+        settings: meta?.settings ?? null,
         currentTrack: state.currentTrack ?? null,
         queue: state.queue,
       },

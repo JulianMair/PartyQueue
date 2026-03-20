@@ -94,11 +94,21 @@ export default function PlaylistTracks({ playlist }: PlaylistTracksProps) {
         setSearchError(null);
         setHasSearched(true);
         const q = encodeURIComponent(normalizedSearchQuery);
-        const res = await fetch(`/api/music/search?q=${q}&limit=50`, {
-          cache: "no-store",
-          signal: controller.signal,
-        });
-        const data = await res.json();
+        const requestUrl = `/api/music/search?q=${q}&limit=50`;
+
+        let res: Response | null = null;
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          res = await fetch(requestUrl, {
+            cache: "no-store",
+            signal: controller.signal,
+          });
+
+          if (res.ok || res.status < 500 || attempt === 1) break;
+          await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+
+        if (!res) throw new Error("Fehler bei der Suche");
+        const data = await res.json().catch(() => ({}));
         if (token !== latestSearchTokenRef.current) return;
         if (!res.ok) throw new Error(data.error || "Fehler bei der Suche");
         setSearchTracks(Array.isArray(data.tracks) ? data.tracks : []);
@@ -106,7 +116,6 @@ export default function PlaylistTracks({ playlist }: PlaylistTracksProps) {
         if (err?.name === "AbortError") return;
         if (token !== latestSearchTokenRef.current) return;
         setSearchError(err?.message || "Fehler bei der Suche");
-        setSearchTracks([]);
       } finally {
         if (token === latestSearchTokenRef.current) {
           setSearchLoading(false);

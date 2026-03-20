@@ -20,6 +20,7 @@ export async function POST(req: Request) {
         partyId: state.id,
         name: meta?.name ?? state.id,
         isActive: state.isActive,
+        settings: meta?.settings ?? null,
         queue: state.queue,
         currentTrack: state.currentTrack ?? null,
       },

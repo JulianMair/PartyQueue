@@ -13,6 +13,7 @@ export interface Track {
   durationMs?: number;
   progressMs?: number;
   isplaying?: boolean;
+  explicit?: boolean;
 }
 
 export interface PartyTrack extends Track {
@@ -34,6 +35,7 @@ export interface MusicProvider {
   play(uri?: string): Promise<void>;
   pause(): Promise<void>;
   next(): Promise<void>;
+  setVolume(volumePercent: number): Promise<void>;
   queueTrack(uri: string): Promise<void>;
   getCurrentPlayback(): Promise<any>;
   playTrackList(uris: string[]): Promise<void>;

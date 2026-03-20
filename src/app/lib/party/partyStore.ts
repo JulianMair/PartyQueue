@@ -1,5 +1,7 @@
 import { getDb } from "@/app/lib/db/mongodb";
 import type { PartyState } from "./PartyManager";
+import type { PartySettings } from "./settings";
+import { DEFAULT_PARTY_SETTINGS, sanitizePartySettings } from "./settings";
 
 export interface PartyPersistenceSnapshot {
   state: PartyState;
@@ -13,6 +15,7 @@ export interface PartyMetadata {
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
+  settings: PartySettings;
 }
 
 interface PartyDocument {
@@ -22,6 +25,7 @@ interface PartyDocument {
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
+  settings?: PartySettings;
   state: PartyState;
   votedByClient: Record<string, string[]>;
 }
@@ -41,6 +45,7 @@ export class PartyStore {
     partyId: string;
     name: string;
     providerName: string;
+    settings: PartySettings;
     snapshot: PartyPersistenceSnapshot;
   }) {
     const collection = await this.collection();
@@ -53,6 +58,7 @@ export class PartyStore {
       isActive: input.snapshot.state.isActive,
       createdAt: now,
       updatedAt: now,
+      settings: input.settings,
       state: input.snapshot.state,
       votedByClient: input.snapshot.votedByClient,
     });
@@ -64,6 +70,7 @@ export class PartyStore {
       snapshot: PartyPersistenceSnapshot;
       name?: string;
       providerName?: string;
+      settings?: PartySettings;
     }
   ) {
     const collection = await this.collection();
@@ -79,6 +86,7 @@ export class PartyStore {
           updatedAt: now,
           ...(input.name ? { name: input.name } : {}),
           ...(input.providerName ? { providerName: input.providerName } : {}),
+          ...(input.settings ? { settings: input.settings } : {}),
         },
       },
       { upsert: false }
@@ -123,6 +131,7 @@ export class PartyStore {
       isActive: doc.isActive,
       createdAt: doc.createdAt.toISOString(),
       updatedAt: doc.updatedAt.toISOString(),
+      settings: sanitizePartySettings(doc.settings ?? DEFAULT_PARTY_SETTINGS),
     }));
   }
 
@@ -138,6 +147,7 @@ export class PartyStore {
       isActive: doc.isActive,
       createdAt: doc.createdAt.toISOString(),
       updatedAt: doc.updatedAt.toISOString(),
+      settings: sanitizePartySettings(doc.settings ?? DEFAULT_PARTY_SETTINGS),
       snapshot: {
         state: doc.state,
         votedByClient: doc.votedByClient || {},
@@ -157,6 +167,7 @@ export class PartyStore {
       isActive: doc.isActive,
       createdAt: doc.createdAt.toISOString(),
       updatedAt: doc.updatedAt.toISOString(),
+      settings: sanitizePartySettings(doc.settings ?? DEFAULT_PARTY_SETTINGS),
       snapshot: {
         state: doc.state,
         votedByClient: doc.votedByClient || {},
@@ -180,6 +191,7 @@ export class PartyStore {
       isActive: doc.isActive,
       createdAt: doc.createdAt.toISOString(),
       updatedAt: doc.updatedAt.toISOString(),
+      settings: sanitizePartySettings(doc.settings ?? DEFAULT_PARTY_SETTINGS),
       snapshot: {
         state: doc.state,
         votedByClient: doc.votedByClient || {},

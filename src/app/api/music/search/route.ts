@@ -20,9 +20,17 @@ export async function GET(req: Request) {
     return NextResponse.json({ tracks, query: q, limit });
   } catch (error: any) {
     console.error("Search tracks error:", error);
+    const status =
+      typeof error?.status === "number" && error.status >= 400 && error.status < 600
+        ? error.status
+        : 500;
+    const message =
+      status === 401
+        ? "Spotify session expired"
+        : error?.message || "Failed to search tracks";
     return NextResponse.json(
-      { error: error.message || "Failed to search tracks" },
-      { status: 500 }
+      { error: message },
+      { status }
     );
   }
 }

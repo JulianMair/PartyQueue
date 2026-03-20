@@ -21,8 +21,15 @@ export default function FooterPlayer() {
   const [isReady, setIsReady] = useState(false);
   const [isConnecting, setIsConnecting] = useState(true);
   const [volume, setVolume] = useState<number | null>(null);
+  const [seekDraftMs, setSeekDraftMs] = useState<number | null>(null);
+  const [isSeeking, setIsSeeking] = useState(false);
   const { partyId } = useParty();
   const volumeUpdateTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const seekDraftRef = useRef<number | null>(null);
+  const seekCommitInFlightRef = useRef(false);
+  const isSeekingRef = useRef(false);
+  const suppressStateUpdatesUntilRef = useRef(0);
+  const pendingSeekMsRef = useRef<number | null>(null);
 
   const fetchAccessToken = async (): Promise<string | null> => {
     try {
@@ -78,6 +85,24 @@ export default function FooterPlayer() {
     if (deviceId) query.set("device_id", deviceId);
 
     await fetch(`https://api.spotify.com/v1/me/player/volume?${query.toString()}`, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  };
+
+  const setSpotifySeek = async (positionMs: number) => {
+    const token = await fetchAccessToken();
+    if (!token) throw new Error("Missing access token");
+
+    const safePositionMs = Math.max(0, Math.floor(positionMs));
+    const query = new URLSearchParams({
+      position_ms: String(safePositionMs),
+    });
+    if (deviceId) query.set("device_id", deviceId);
+
+    await fetch(`https://api.spotify.com/v1/me/player/seek?${query.toString()}`, {
       method: "PUT",
       headers: {
         Authorization: `Bearer ${token}`,
@@ -185,6 +210,28 @@ export default function FooterPlayer() {
         newPlayer.addListener("player_state_changed", (state: any) => {
           const current = state?.track_window?.current_track;
           if (!current) return;
+
+          if (isSeekingRef.current) return;
+
+          const nextProgress =
+            typeof state.position === "number" ? state.position : 0;
+          const pendingSeekMs = pendingSeekMsRef.current;
+          const isSuppressed = Date.now() < suppressStateUpdatesUntilRef.current;
+          if (
+            isSuppressed &&
+            pendingSeekMs !== null &&
+            Math.abs(nextProgress - pendingSeekMs) > 2500
+          ) {
+            return;
+          }
+
+          if (
+            pendingSeekMs !== null &&
+            Math.abs(nextProgress - pendingSeekMs) <= 2500
+          ) {
+            pendingSeekMsRef.current = null;
+          }
+
           setTrack({
             id: current.id,
             uri: current.uri,
@@ -237,6 +284,14 @@ export default function FooterPlayer() {
 
   // Fortschritt lokal animieren
   useEffect(() => {
+    seekDraftRef.current = seekDraftMs;
+  }, [seekDraftMs]);
+
+  useEffect(() => {
+    isSeekingRef.current = isSeeking;
+  }, [isSeeking]);
+
+  useEffect(() => {
     if (!track || !track.isplaying) return;
 
     const start = Date.now();
@@ -245,6 +300,7 @@ export default function FooterPlayer() {
     const interval = setInterval(() => {
       setTrack((prev) => {
         if (!prev || !prev.isplaying) return prev;
+        if (isSeeking || seekDraftRef.current !== null) return prev;
         const elapsed = Date.now() - start;
         const newProgress = initial + elapsed;
 
@@ -258,7 +314,7 @@ export default function FooterPlayer() {
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [track?.isplaying, track?.id]);
+  }, [track?.isplaying, track?.id, isSeeking]);
 
   // 🧠 Player sicher abfragen
   const getPlayerState = async () => {
@@ -321,7 +377,7 @@ export default function FooterPlayer() {
       await fetch("/api/party/next", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ partyId: effectivePartyId }),
+        body: JSON.stringify({ partyId: effectivePartyId, applyFade: false }),
       });
     } catch (err) {
       console.error("Next-Fehler:", err);
@@ -353,6 +409,37 @@ export default function FooterPlayer() {
     return `${min}:${sec.toString().padStart(2, "0")}`;
   };
 
+  const handleSeekChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const nextMs = Number(event.target.value);
+    setSeekDraftMs(nextMs);
+  };
+
+  const commitSeek = async () => {
+    if (!track || seekDraftRef.current === null || seekCommitInFlightRef.current) return;
+    seekCommitInFlightRef.current = true;
+    const duration = track.durationMs ?? 0;
+    const nextMs = Math.max(0, Math.min(duration, seekDraftRef.current));
+    pendingSeekMsRef.current = nextMs;
+    suppressStateUpdatesUntilRef.current = Date.now() + 1800;
+
+    try {
+      setTrack((prev) => (prev ? { ...prev, progressMs: nextMs } : prev));
+      if (player?.seek) {
+        await player.seek(nextMs);
+      } else {
+        await setSpotifySeek(nextMs);
+      }
+    } catch (err) {
+      console.error("Seek-Fehler:", err);
+      pendingSeekMsRef.current = null;
+    } finally {
+      setIsSeeking(false);
+      setSeekDraftMs(null);
+      seekDraftRef.current = null;
+      seekCommitInFlightRef.current = false;
+    }
+  };
+
   // --- Render ---
   if (!track)
     return (
@@ -364,6 +451,11 @@ export default function FooterPlayer() {
         )}
       </footer>
     );
+
+  const effectiveProgressMs = seekDraftMs ?? track.progressMs ?? 0;
+  const durationMs = track.durationMs ?? 0;
+  const progressPercent =
+    durationMs > 0 ? Math.min(100, (effectiveProgressMs / durationMs) * 100) : 0;
 
   return (
     <footer className="h-full bg-neutral-900 text-gray-200 flex items-center justify-between px-3 md:px-6 border-t border-neutral-800 shadow-[0_-2px_10px_rgba(0,0,0,0.5)]">
@@ -404,22 +496,41 @@ export default function FooterPlayer() {
         </div>
 
         {/* Fortschrittsleiste */}
-        <div className="flex items-center gap-2 w-150">
+        <div className="flex items-center gap-2 w-full max-w-xl">
           <span className="text-xs text-gray-400">
-            {formatTime(track.progressMs || 0)}
+            {formatTime(effectiveProgressMs)}
           </span>
-          <div className="relative flex-1 h-1 bg-neutral-700 rounded-full overflow-hidden">
+          <div className="relative flex-1 h-5 flex items-center">
+            <div className="absolute inset-x-0 h-1 rounded-full bg-neutral-700" />
             <div
-              className="absolute h-1 bg-green-500 rounded-full"
-              style={{
-                width: `${(track.progressMs && track.durationMs
-                  ? track.progressMs / track.durationMs
-                  : 0) * 100}%`,
+              className="absolute h-1 rounded-full bg-green-500 pointer-events-none"
+              style={{ width: `${progressPercent}%` }}
+            />
+            <input
+              type="range"
+              min={0}
+              max={durationMs || 0}
+              step={500}
+              value={Math.min(effectiveProgressMs, durationMs || effectiveProgressMs)}
+              onMouseDown={() => setIsSeeking(true)}
+              onTouchStart={() => setIsSeeking(true)}
+              onChange={handleSeekChange}
+              onMouseUp={() => void commitSeek()}
+              onTouchEnd={() => void commitSeek()}
+              onTouchCancel={() => void commitSeek()}
+              onKeyUp={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  void commitSeek();
+                }
               }}
+              onBlur={() => void commitSeek()}
+              className="absolute inset-x-0 h-1 appearance-none rounded-full bg-transparent accent-green-500 cursor-pointer"
+              disabled={!isReady || !durationMs}
+              aria-label="Songposition"
             />
           </div>
           <span className="text-xs text-gray-400">
-            {formatTime(track.durationMs || 0)}
+            {formatTime(durationMs)}
           </span>
         </div>
       </div>

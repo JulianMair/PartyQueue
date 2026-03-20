@@ -14,6 +14,7 @@ export async function GET() {
     partyId: state.id,
     name: meta?.name ?? state.id,
     isActive: state.isActive,
+    settings: meta?.settings ?? null,
     queue: state.queue,
   });
 }

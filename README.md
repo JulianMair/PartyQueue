@@ -65,6 +65,12 @@ Collection: `parties`
 - `createdAt`, `updatedAt` (Date)
 - `state` (PartyState inkl. `queue`, `currentTrack`, `isActive`)
 - `votedByClient` (Record `<clientId, trackIds[]>`)
+- `settings`:
+  - `genres` (z. B. Rock, Hip-Hop, Pop, Techno, House, 90s, EDM)
+  - `autoFillEnabled` (Vorbereitung für spätere Auto-Queue-Logik)
+  - `targetQueueSize` (z. B. 20)
+  - `allowExplicit` (true/false)
+  - `fadeSeconds` (0-12 Sekunden Übergang beim Trackwechsel)
 
 Damit ist die Struktur bereits geeignet, um große PartyQueues inkl. aus Playlists importierter Tracks zu speichern.
 
@@ -74,6 +80,43 @@ Damit ist die Struktur bereits geeignet, um große PartyQueues inkl. aus Playlis
 - `GET /api/party/list` Partys auflisten
 - `POST /api/party/load` Party laden/aktivieren
 - `POST /api/party/delete` Party löschen
+- `POST /api/party/settings` Party-Settings speichern und genrebasierte Queue-Befüllung auslösen
+
+### Erste genrebasierte Queue-Befüllung
+
+Wenn in den Party-Settings Genres gesetzt sind, werden bei Erstellung und beim Speichern der Settings
+passende Songs über die bestehende Spotify-Suche geholt und in die interne PartyQueue eingefügt.
+
+- nutzt `genres` + `targetQueueSize` als Ziel
+- mischt Ergebnisse aus mehreren Genres
+- vermeidet Duplikate gegen bestehende Queue
+- berücksichtigt `allowExplicit` (wenn `false`, werden explizite Tracks herausgefiltert)
+- bei aktivem `autoFillEnabled` läuft fortlaufend ein Auto-Fill-Zyklus:
+  - wenn die Queue unter Zielgröße fällt, werden bis zu 2 passende Songs ergänzt
+  - wenn die Queue auf Zielgröße ist, werden 2 niedrigst gerankte Songs entfernt
+  - anschließend rücken 2 neue passende Songs nach
+  - der aktuell nächste Song in der Queue wird dabei geschützt
+
+## API-Auth-Schutz
+
+Sensitive Host- und Verwaltungs-Endpunkte sind zentral über `src/middleware.ts` geschützt.
+Eine Anfrage gilt als angemeldet, wenn mindestens einer der Cookies vorhanden ist:
+
+- `spotify_access_token`
+- `spotify_refresh_token`
+
+### Öffentlich erlaubt (bewusst ohne Login)
+
+- `GET /api/party/mobile` (Top-10 für Gäste)
+- `POST /api/party/vote` (Voting/Unvote für Gäste)
+- `POST /api/party/join` (Gastbeitritt)
+- OAuth-Endpunkte unter `/api/auth/*` (`login`, `callback`, `token`, `refresh`)
+
+### Login erforderlich
+
+- alle übrigen Endpunkte unter `/api/music/*`
+- alle übrigen Endpunkte unter `/api/party/*` (z. B. `create`, `delete`, `load`, `add`, `add-playlist`, `remove`, `reorder`, `next`, `list`, `active`, `state`, `status`)
+- Host-Dashboard unter `/dashboard/*`
 
 ### ENV für externe MongoDB
 

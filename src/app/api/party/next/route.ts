@@ -4,7 +4,10 @@ import { partyRegistry } from "@/app/lib/party/PartyRegistry";
 
 export async function POST(req: Request) {
     const body = await req.json();
-    const { partyId } = body as { partyId: string};
+    const { partyId, applyFade } = body as {
+      partyId: string;
+      applyFade?: boolean;
+    };
 
     if (!partyId) {
       return NextResponse.json(
@@ -22,6 +25,6 @@ export async function POST(req: Request) {
     }
 
     // Track hinzufügen
-    await party.playNextTrack();
+    await party.playNextTrack(applyFade ?? true);
     return NextResponse.json({ success: true });
 }

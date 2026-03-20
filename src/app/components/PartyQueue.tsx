@@ -3,6 +3,12 @@
 import { DragEvent, Fragment, TouchEvent, useState, useEffect } from "react";
 import QRCode from "react-qr-code";
 import { useParty } from "@/app/context/PartyContext";
+import PartyManagementSheet from "@/app/components/PartyManagementSheet";
+import {
+  DEFAULT_PARTY_SETTINGS,
+  type PartyGenre,
+  type PartySettings,
+} from "@/app/lib/party/settings";
 // Typ aus deinem bestehenden Spotify-Provider
 // Beispiel: src/app/lib/types/track.ts
 import type { PartyTrack } from "../lib/providers/types";
@@ -13,6 +19,7 @@ interface PartyListItem {
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
+  settings?: PartySettings;
 }
 
 export default function PartyQueue() {
@@ -28,6 +35,11 @@ export default function PartyQueue() {
   const [touchDragFromIndex, setTouchDragFromIndex] = useState<number | null>(null);
   const [touchDragOverIndex, setTouchDragOverIndex] = useState<number | null>(null);
   const [openTrackMenu, setOpenTrackMenu] = useState<number | null>(null);
+  const [showPartyManagement, setShowPartyManagement] = useState(false);
+  const [pendingSettings, setPendingSettings] = useState<PartySettings>(
+    DEFAULT_PARTY_SETTINGS
+  );
+  const [settingsSaveMessage, setSettingsSaveMessage] = useState<string | null>(null);
   const BASIC_URI = process.env.NEXT_PUBLIC_BASE_URL!;
 
   const partyBaseUrl = `${BASIC_URI}/party`; // später dynamisch aus ENV
@@ -46,7 +58,10 @@ export default function PartyQueue() {
       const res = await fetch("/api/party/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newPartyName || undefined }),
+        body: JSON.stringify({
+          name: newPartyName || undefined,
+          settings: pendingSettings,
+        }),
       });
 
       if (!res.ok) {
@@ -58,6 +73,8 @@ export default function PartyQueue() {
       setPartyId(data.partyId);
       setIsPartyActive(true);
       setNewPartyName("");
+      setPendingSettings(DEFAULT_PARTY_SETTINGS);
+      setShowPartyManagement(false);
       await fetchParties();
     } finally {
       setIsBusy(false);
@@ -82,6 +99,10 @@ export default function PartyQueue() {
       setPartyId(targetPartyId);
       setIsPartyActive(Boolean(data?.party?.isActive));
       setQueue(Array.isArray(data?.party?.queue) ? data.party.queue : []);
+      if (data?.party?.settings) {
+        setPendingSettings(data.party.settings);
+      }
+      setShowPartyManagement(false);
       await fetchParties();
     } finally {
       setIsBusy(false);
@@ -158,6 +179,55 @@ export default function PartyQueue() {
 
   const handleShowQr = () => setShowQr((prev) => !prev);
   const closeTrackMenu = () => setOpenTrackMenu(null);
+  const toggleGenre = (genre: PartyGenre) => {
+    setPendingSettings((prev) => {
+      const hasGenre = prev.genres.includes(genre);
+      return {
+        ...prev,
+        genres: hasGenre
+          ? prev.genres.filter((item) => item !== genre)
+          : [...prev.genres, genre],
+      };
+    });
+  };
+
+  const handleSaveSettings = async () => {
+    if (!partyId) return;
+    setIsBusy(true);
+    setSettingsSaveMessage(null);
+
+    try {
+      const res = await fetch("/api/party/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ partyId, settings: pendingSettings }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setSettingsSaveMessage(data?.error || "Einstellungen konnten nicht gespeichert werden");
+        return;
+      }
+
+      if (Array.isArray(data.queue)) {
+        setQueue(data.queue);
+      }
+      setSettingsSaveMessage(
+        `${data?.addedCount ?? 0} Songs passend zu den Genres hinzugefügt`
+      );
+      await fetchParties();
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!showPartyManagement) return;
+    const activeParty = parties.find((party) => party.partyId === partyId);
+    if (activeParty?.settings) {
+      setPendingSettings(activeParty.settings);
+    }
+  }, [showPartyManagement, parties, partyId]);
 
   const handleTrackDragStart = (index: number) => {
     setDragFromIndex(index);
@@ -221,68 +291,32 @@ export default function PartyQueue() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="sticky top-0 z-10 pb-3 mb-4 border-b border-neutral-800 bg-neutral-950">
-        <h2 className="text-lg font-semibold text-white">🎉 Party Queue</h2>
-
-        <div className="mt-3 space-y-3">
-          <div className="flex gap-2">
-            <input
-              value={newPartyName}
-              onChange={(e) => setNewPartyName(e.target.value)}
-              placeholder="Party-Name (optional)"
-              className="flex-1 px-3 py-2.5 bg-neutral-900 border border-neutral-700 rounded-lg text-sm text-gray-100 placeholder:text-gray-500"
-            />
+      <div className="sticky top-0 z-10 mb-3 border-b border-neutral-800 bg-neutral-950 pb-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <h2 className="text-lg font-semibold text-white">🎉 Party Queue</h2>
+            <p className="truncate text-xs text-gray-400">
+              {partyId
+                ? `Aktive Party: ${parties.find((p) => p.partyId === partyId)?.name ?? partyId}`
+                : "Keine aktive Party"}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
             <button
-              onClick={handleCreateParty}
-              disabled={isBusy}
-              className="px-4 py-2.5 min-h-11 bg-green-600 hover:bg-green-700 disabled:opacity-60 rounded-lg text-white text-sm"
+              onClick={() => setShowPartyManagement(true)}
+              className="min-h-10 rounded-lg bg-neutral-800 px-3 py-2 text-sm text-gray-100 hover:bg-neutral-700"
             >
-              Neue Party
+              Verwalten
             </button>
-          </div>
-
-          <div className="space-y-2 max-h-32 overflow-y-auto pr-1">
-            {parties.length === 0 ? (
-              <p className="text-xs text-gray-500">Keine gespeicherten Partys</p>
-            ) : (
-              parties.map((party) => (
-                <div
-                  key={party.partyId}
-                  className="flex items-center justify-between gap-2 bg-neutral-900 border border-neutral-800 rounded-md px-2 py-1.5"
-                >
-                  <button
-                    onClick={() => handleLoadParty(party.partyId)}
-                    disabled={isBusy}
-                    className={`text-left text-sm truncate flex-1 ${
-                      party.partyId === partyId
-                        ? "text-green-400"
-                        : "text-gray-200 hover:text-white"
-                    }`}
-                  >
-                    {party.name}
-                  </button>
-                  <button
-                    onClick={() => handleDeleteParty(party.partyId)}
-                    disabled={isBusy}
-                    className="text-xs px-3 py-1.5 min-h-9 rounded bg-red-700 hover:bg-red-800 text-white disabled:opacity-60"
-                  >
-                    Löschen
-                  </button>
-                </div>
-              ))
-            )}
-          </div>
-
-          {isPartyActive && (
-            <div className="flex gap-2">
+            {isPartyActive && (
               <button
                 onClick={handleShowQr}
-                className="px-4 py-2.5 min-h-11 bg-blue-600 hover:bg-blue-700 rounded-lg text-white text-sm"
+                className="min-h-10 rounded-lg bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-700"
               >
-                QR-Code anzeigen
+                QR
               </button>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
 
@@ -456,6 +490,27 @@ export default function PartyQueue() {
           })
         )}
       </ul>
+
+      <PartyManagementSheet
+        isOpen={showPartyManagement}
+        onClose={() => {
+          setShowPartyManagement(false);
+          setSettingsSaveMessage(null);
+        }}
+        parties={parties}
+        activePartyId={partyId}
+        newPartyName={newPartyName}
+        onNewPartyNameChange={setNewPartyName}
+        pendingSettings={pendingSettings}
+        onToggleGenre={toggleGenre}
+        onPendingSettingsChange={setPendingSettings}
+        onCreateParty={handleCreateParty}
+        onSaveSettings={handleSaveSettings}
+        onLoadParty={handleLoadParty}
+        onDeleteParty={handleDeleteParty}
+        isBusy={isBusy}
+        saveMessage={settingsSaveMessage}
+      />
 
       {/* QR Modal */}
       {showQr && partyId && (

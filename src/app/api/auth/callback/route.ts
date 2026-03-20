@@ -53,6 +53,14 @@ export async function GET(req: Request) {
     ...cookieOptions,
     maxAge: data.expires_in, // meist 3600 Sekunden
   });
+  res.cookies.set(
+    "spotify_access_token_expires_at",
+    String(Date.now() + (Number(data.expires_in) || 3600) * 1000),
+    {
+      ...cookieOptions,
+      maxAge: (Number(data.expires_in) || 3600) + 300,
+    }
+  );
 
   if (data.refresh_token) {
     res.cookies.set("spotify_refresh_token", data.refresh_token, {
