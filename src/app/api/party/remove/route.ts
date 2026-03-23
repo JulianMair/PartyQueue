@@ -4,11 +4,15 @@ import { partyRegistry } from "@/app/lib/party/PartyRegistry";
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { partyId, index } = body as { partyId?: string; index?: number };
+    const { partyId, index, trackId } = body as {
+      partyId?: string;
+      index?: number;
+      trackId?: string;
+    };
 
-    if (!partyId || typeof index !== "number") {
+    if (!partyId || (typeof trackId !== "string" && typeof index !== "number")) {
       return NextResponse.json(
-        { error: "partyId und index sind erforderlich" },
+        { error: "partyId und trackId oder index sind erforderlich" },
         { status: 400 }
       );
     }
@@ -21,7 +25,23 @@ export async function POST(req: Request) {
       );
     }
 
-    party.removeTrackAt(index);
+    let removed = false;
+    if (typeof trackId === "string" && trackId.trim().length > 0) {
+      removed = party.removeTrackById(trackId.trim());
+    }
+
+    if (!removed && typeof index === "number") {
+      const beforeLength = party.getState().queue.length;
+      party.removeTrackAt(index);
+      removed = party.getState().queue.length < beforeLength;
+    }
+
+    if (!removed) {
+      return NextResponse.json(
+        { error: "Song konnte nicht gelöscht werden" },
+        { status: 404 }
+      );
+    }
 
     return NextResponse.json({
       success: true,

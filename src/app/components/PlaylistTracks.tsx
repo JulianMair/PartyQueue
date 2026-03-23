@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback, useMemo } from "react";
+import { DragEvent, useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { Track, Playlist } from "../lib/providers/types";
 import { useParty } from "@/app/context/PartyContext";
 
@@ -10,6 +10,7 @@ interface PlaylistTracksProps {
 }
 
 export default function PlaylistTracks({ playlist }: PlaylistTracksProps) {
+  const SEARCH_TRACK_DRAG_MIME = "application/x-partyqueue-search-track";
   const MIN_SEARCH_CHARS = 2;
   const SEARCH_DEBOUNCE_MS = 350;
   const [tracks, setTracks] = useState<Track[]>([]);
@@ -23,9 +24,13 @@ export default function PlaylistTracks({ playlist }: PlaylistTracksProps) {
   const [hasMore, setHasMore] = useState(true);
   const observer = useRef<IntersectionObserver | null>(null);
   const [addingTrack, setAddingTrack] = useState<string | null>(null); // 🔹 für Ladezustand beim Hinzufügen
+  const [draggingTrackId, setDraggingTrackId] = useState<string | null>(null);
   const [addingPlaylist, setAddingPlaylist] = useState(false);
   const [playlistAddMessage, setPlaylistAddMessage] = useState<string | null>(null);
   const { partyId, isPartyActive } = useParty();
+  const playlistTracksAbortRef = useRef<AbortController | null>(null);
+  const activePlaylistTokenRef = useRef(0);
+  const currentPlaylistIdRef = useRef<string | null>(null);
   const searchAbortRef = useRef<AbortController | null>(null);
   const latestSearchTokenRef = useRef(0);
   const normalizedSearchQuery = useMemo(() => searchQuery.trim(), [searchQuery]);
@@ -37,38 +42,64 @@ export default function PlaylistTracks({ playlist }: PlaylistTracksProps) {
 
   // --- EXISTIERENDE useCallback fetchTracks() ---
   const fetchTracks = useCallback(async () => {
-    if (!playlist?.id || loading || !hasMore) return;
+    const playlistId = playlist?.id;
+    if (!playlistId || loading || !hasMore) return;
+
     setLoading(true);
+    const token = activePlaylistTokenRef.current;
+    const requestOffset = offset;
+    const controller = new AbortController();
+    playlistTracksAbortRef.current = controller;
 
     try {
       const res = await fetch(
-        `/api/music/playlists/${playlist.id}/tracks?offset=${offset}&limit=50`
+        `/api/music/playlists/${playlistId}/tracks?offset=${requestOffset}&limit=50`,
+        { signal: controller.signal }
       );
       const data = await res.json();
 
       if (data.error) throw new Error(data.error);
+      if (token !== activePlaylistTokenRef.current) return;
+      if (playlistId !== currentPlaylistIdRef.current) return;
 
       setTracks((prev) => [...prev, ...data.tracks]);
       setOffset((prev) => prev + 50);
       setHasMore(Boolean(data.next));
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.name === "AbortError") return;
       console.error("Fehler beim Laden der Songs:", err);
     } finally {
-      setLoading(false);
+      if (token === activePlaylistTokenRef.current) {
+        setLoading(false);
+      }
     }
   }, [playlist?.id, offset, hasMore, loading]);
 
   // --- EXISTIERENDE useEffects bleiben gleich ---
   useEffect(() => {
+    activePlaylistTokenRef.current += 1;
+    currentPlaylistIdRef.current = playlist?.id ?? null;
+    playlistTracksAbortRef.current?.abort();
+    playlistTracksAbortRef.current = null;
+
     if (!playlist) return;
     setTracks([]);
     setOffset(0);
     setHasMore(true);
-  }, [playlist]);
+    setLoading(false);
+  }, [playlist?.id]);
 
   useEffect(() => {
-    if (playlist && !isSearching) fetchTracks();
-  }, [playlist, fetchTracks, isSearching]);
+    if (playlist?.id && !isSearching) fetchTracks();
+  }, [playlist?.id, fetchTracks, isSearching]);
+
+  useEffect(
+    () => () => {
+      playlistTracksAbortRef.current?.abort();
+      searchAbortRef.current?.abort();
+    },
+    []
+  );
 
   useEffect(() => {
     if (!isSearching) {
@@ -97,13 +128,23 @@ export default function PlaylistTracks({ playlist }: PlaylistTracksProps) {
         const requestUrl = `/api/music/search?q=${q}&limit=50`;
 
         let res: Response | null = null;
-        for (let attempt = 0; attempt < 2; attempt += 1) {
+        let refreshedAfter401 = false;
+        for (let attempt = 0; attempt < 3; attempt += 1) {
           res = await fetch(requestUrl, {
             cache: "no-store",
             signal: controller.signal,
           });
 
-          if (res.ok || res.status < 500 || attempt === 1) break;
+          if (res.status === 401 && !refreshedAfter401) {
+            refreshedAfter401 = true;
+            await fetch("/api/auth/refresh", {
+              cache: "no-store",
+              signal: controller.signal,
+            }).catch(() => undefined);
+            continue;
+          }
+
+          if (res.ok || res.status < 500 || attempt === 2) break;
           await new Promise((resolve) => setTimeout(resolve, 250));
         }
 
@@ -220,6 +261,20 @@ export default function PlaylistTracks({ playlist }: PlaylistTracksProps) {
     return `${min}:${sec.toString().padStart(2, "0")}`;
   };
 
+  const handleSearchTrackDragStart = (
+    event: DragEvent<HTMLButtonElement>,
+    track: Track
+  ) => {
+    const payload = JSON.stringify({
+      type: "partyqueue-search-track",
+      track,
+    });
+    event.dataTransfer.setData(SEARCH_TRACK_DRAG_MIME, payload);
+    event.dataTransfer.setData("text/plain", payload);
+    event.dataTransfer.effectAllowed = "copyMove";
+    setDraggingTrackId(track.id);
+  };
+
   return (
     <div className="h-full overflow-y-auto scrollbar-thin scrollbar-thumb-neutral-700 scrollbar-track-neutral-900 pr-2">
       <div className="sticky top-0 z-10 pb-3 mb-3 border-b border-neutral-800 bg-neutral-950">
@@ -280,6 +335,18 @@ export default function PlaylistTracks({ playlist }: PlaylistTracksProps) {
             className="flex items-center gap-4 bg-neutral-900 border border-neutral-800 rounded-lg p-3 hover:bg-neutral-800 transition"
           >
             <p className="w-6 text-gray-500">{i + 1}</p>
+            <button
+              draggable
+              onDragStart={(event) => handleSearchTrackDragStart(event, track)}
+              onDragEnd={() => setDraggingTrackId(null)}
+              className={`text-sm px-2 py-1.5 min-h-9 rounded text-gray-300 transition cursor-grab active:cursor-grabbing ${
+                draggingTrackId === track.id ? "bg-neutral-700 text-white" : "hover:bg-neutral-700 hover:text-white"
+              }`}
+              title="In PartyQueue ziehen"
+              aria-label="Song per Drag and Drop zur PartyQueue verschieben"
+            >
+              ☰
+            </button>
             {track.albumArt && (
               <img
                 src={track.albumArt}

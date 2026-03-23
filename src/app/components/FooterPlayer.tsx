@@ -30,6 +30,7 @@ export default function FooterPlayer() {
   const isSeekingRef = useRef(false);
   const suppressStateUpdatesUntilRef = useRef(0);
   const pendingSeekMsRef = useRef<number | null>(null);
+  const recoveringPlayerRef = useRef(false);
 
   const fetchAccessToken = async (): Promise<string | null> => {
     try {
@@ -326,6 +327,23 @@ export default function FooterPlayer() {
     }
   };
 
+  useEffect(() => {
+    if (!player || !deviceId || !track?.isplaying) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const state = await player.getCurrentState?.();
+        if (!state) {
+          await recoverPlayerSession();
+        }
+      } catch (err) {
+        console.error("Player Healthcheck Error:", err);
+      }
+    }, 12000);
+
+    return () => clearInterval(interval);
+  }, [player, deviceId, track?.isplaying]);
+
   // --- Steuerfunktionen ---
   const handlePlayPause = async () => {
     if (!player) return;
@@ -399,6 +417,31 @@ export default function FooterPlayer() {
       await player?.activateElement?.();
     } catch (err) {
       console.error("Fehler beim Aktivieren des Players:", err);
+    }
+  };
+
+  const recoverPlayerSession = async () => {
+    if (!player || !deviceId || recoveringPlayerRef.current) return;
+    recoveringPlayerRef.current = true;
+    try {
+      await activatePlayer();
+      const token = await fetchAccessToken();
+      if (!token) return;
+
+      await fetch("https://api.spotify.com/v1/me/player", {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ device_ids: [deviceId], play: false }),
+      });
+
+      await fetchCurrentVolume();
+    } catch (err) {
+      console.error("Player Recovery Error:", err);
+    } finally {
+      recoveringPlayerRef.current = false;
     }
   };
 

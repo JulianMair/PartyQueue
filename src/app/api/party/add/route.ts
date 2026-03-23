@@ -5,7 +5,11 @@ import type { Track } from "@/app/lib/providers/types";
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { partyId, track } = body as { partyId: string; track: Track };
+    const { partyId, track, insertIndex } = body as {
+      partyId: string;
+      track: Track;
+      insertIndex?: number;
+    };
 
     if (!partyId || !track) {
       return NextResponse.json(
@@ -23,7 +27,10 @@ export async function POST(req: Request) {
     }
 
     // Track hinzufügen
-    await party.addTrack(track);
+    await party.addTrack(
+      track,
+      typeof insertIndex === "number" ? insertIndex : undefined
+    );
 
     const state = party.getState();
     return NextResponse.json({

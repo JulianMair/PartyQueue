@@ -93,9 +93,8 @@ passende Songs über die bestehende Spotify-Suche geholt und in die interne Part
 - berücksichtigt `allowExplicit` (wenn `false`, werden explizite Tracks herausgefiltert)
 - bei aktivem `autoFillEnabled` läuft fortlaufend ein Auto-Fill-Zyklus:
   - wenn die Queue unter Zielgröße fällt, werden bis zu 2 passende Songs ergänzt
-  - wenn die Queue auf Zielgröße ist, werden 2 niedrigst gerankte Songs entfernt
-  - anschließend rücken 2 neue passende Songs nach
-  - der aktuell nächste Song in der Queue wird dabei geschützt
+  - wenn die Queue auf Zielgröße ist, bleibt sie stabil (es wird nichts entfernt)
+  - zusätzlich analysiert Auto-Fill hoch gevotete Songs (Artist/Track-Signale) und nutzt diese als Such-Boost
 
 ## API-Auth-Schutz
 

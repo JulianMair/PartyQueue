@@ -1,8 +1,11 @@
 export const PARTY_GENRE_OPTIONS = [
+  "Party Mix",
   "Rock",
   "Hip-Hop",
+  "Deutschrap",
   "Pop",
   "Schlager",
+  "Club",
   "Techno",
   "House",
   "EDM",

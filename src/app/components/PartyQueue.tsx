@@ -11,7 +11,7 @@ import {
 } from "@/app/lib/party/settings";
 // Typ aus deinem bestehenden Spotify-Provider
 // Beispiel: src/app/lib/types/track.ts
-import type { PartyTrack } from "../lib/providers/types";
+import type { PartyTrack, Track } from "../lib/providers/types";
 
 interface PartyListItem {
   partyId: string;
@@ -23,6 +23,7 @@ interface PartyListItem {
 }
 
 export default function PartyQueue() {
+  const SEARCH_TRACK_DRAG_MIME = "application/x-partyqueue-search-track";
   const MOBILE_TOP_LIMIT = 10;
   const { partyId, setPartyId, isPartyActive, setIsPartyActive } = useParty();
   const [showQr, setShowQr] = useState(false);
@@ -31,7 +32,8 @@ export default function PartyQueue() {
   const [newPartyName, setNewPartyName] = useState("");
   const [isBusy, setIsBusy] = useState(false);
   const [dragFromIndex, setDragFromIndex] = useState<number | null>(null);
-  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [queueDragOverIndex, setQueueDragOverIndex] = useState<number | null>(null);
+  const [searchDropOverIndex, setSearchDropOverIndex] = useState<number | null>(null);
   const [touchDragFromIndex, setTouchDragFromIndex] = useState<number | null>(null);
   const [touchDragOverIndex, setTouchDragOverIndex] = useState<number | null>(null);
   const [openTrackMenu, setOpenTrackMenu] = useState<number | null>(null);
@@ -40,6 +42,7 @@ export default function PartyQueue() {
     DEFAULT_PARTY_SETTINGS
   );
   const [settingsSaveMessage, setSettingsSaveMessage] = useState<string | null>(null);
+  const [isSearchTrackDropActive, setIsSearchTrackDropActive] = useState(false);
   const BASIC_URI = process.env.NEXT_PUBLIC_BASE_URL!;
 
   const partyBaseUrl = `${BASIC_URI}/party`; // später dynamisch aus ENV
@@ -229,6 +232,23 @@ export default function PartyQueue() {
     }
   }, [showPartyManagement, parties, partyId]);
 
+  useEffect(() => {
+    const clearDropHighlight = () => {
+      setIsSearchTrackDropActive(false);
+      setSearchDropOverIndex(null);
+      setQueueDragOverIndex(null);
+      setTouchDragFromIndex(null);
+      setTouchDragOverIndex(null);
+    };
+    window.addEventListener("dragend", clearDropHighlight);
+    window.addEventListener("drop", clearDropHighlight);
+
+    return () => {
+      window.removeEventListener("dragend", clearDropHighlight);
+      window.removeEventListener("drop", clearDropHighlight);
+    };
+  }, []);
+
   const handleTrackDragStart = (index: number) => {
     setDragFromIndex(index);
     closeTrackMenu();
@@ -237,13 +257,13 @@ export default function PartyQueue() {
   const handleTrackDrop = async (toIndex: number) => {
     if (!partyId || dragFromIndex === null || dragFromIndex === toIndex) {
       setDragFromIndex(null);
-      setDragOverIndex(null);
+      setQueueDragOverIndex(null);
       return;
     }
 
     await reorderTrack(dragFromIndex, toIndex);
     setDragFromIndex(null);
-    setDragOverIndex(null);
+    setQueueDragOverIndex(null);
   };
 
   const reorderTrack = async (fromIndex: number, toIndex: number) => {
@@ -265,14 +285,14 @@ export default function PartyQueue() {
     }
   };
 
-  const handleRemoveTrack = async (index: number) => {
+  const handleRemoveTrack = async (trackId: string, index: number) => {
     if (!partyId) return;
 
     try {
       const res = await fetch("/api/party/remove", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ partyId, index }),
+        body: JSON.stringify({ partyId, trackId, index }),
       });
       if (!res.ok) return;
       const data = await res.json();
@@ -284,9 +304,49 @@ export default function PartyQueue() {
     }
   };
 
+  const extractSearchTrackFromDrop = (
+    event: DragEvent<HTMLElement>
+  ): Track | null => {
+    const payload =
+      event.dataTransfer.getData(SEARCH_TRACK_DRAG_MIME) ||
+      event.dataTransfer.getData("text/plain");
+    if (!payload) return null;
+
+    try {
+      const parsed = JSON.parse(payload) as { type?: string; track?: Track };
+      if (parsed?.type !== "partyqueue-search-track" || !parsed.track?.id) {
+        return null;
+      }
+      return parsed.track;
+    } catch {
+      return null;
+    }
+  };
+
+  const isSearchTrackDragEvent = (event: DragEvent<HTMLElement>) =>
+    event.dataTransfer.types.includes(SEARCH_TRACK_DRAG_MIME);
+
+  const addDroppedSearchTrack = async (track: Track, insertIndex?: number) => {
+    if (!partyId) return;
+    try {
+      const res = await fetch("/api/party/add", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ partyId, track, insertIndex }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (Array.isArray(data.queue)) {
+        setQueue(data.queue);
+      }
+    } catch (err) {
+      console.error("Fehler beim Hinzufügen per Drag-and-Drop:", err);
+    }
+  };
+
   const partyUrl = partyId ? `${partyBaseUrl}/${partyId}/vote` : "";
-  const effectiveDragOverIndex =
-    dragOverIndex !== null ? dragOverIndex : touchDragOverIndex;
+  const effectiveQueueDragOverIndex =
+    queueDragOverIndex !== null ? queueDragOverIndex : touchDragOverIndex;
 
   return (
     <div className="flex flex-col h-full">
@@ -321,9 +381,54 @@ export default function PartyQueue() {
       </div>
 
       {/* Queue */}
-      <ul className="space-y-2 overflow-y-auto overscroll-contain pb-28">
+      <ul
+        className="space-y-2 overflow-y-auto overscroll-contain pb-28"
+        onDragEndCapture={() => {
+          setIsSearchTrackDropActive(false);
+          setSearchDropOverIndex(null);
+          setQueueDragOverIndex(null);
+          setTouchDragFromIndex(null);
+          setTouchDragOverIndex(null);
+        }}
+        onDropCapture={() => {
+          setIsSearchTrackDropActive(false);
+          setSearchDropOverIndex(null);
+          setQueueDragOverIndex(null);
+          setTouchDragFromIndex(null);
+          setTouchDragOverIndex(null);
+        }}
+        onDragOver={(event) => {
+          if (!isSearchTrackDragEvent(event)) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "copy";
+          setIsSearchTrackDropActive(true);
+          setSearchDropOverIndex(null);
+        }}
+        onDragLeave={() => {
+          setIsSearchTrackDropActive(false);
+          setSearchDropOverIndex(null);
+        }}
+        onDrop={(event) => {
+          event.stopPropagation();
+          const droppedTrack = extractSearchTrackFromDrop(event);
+          if (!droppedTrack) return;
+          event.preventDefault();
+          setIsSearchTrackDropActive(false);
+          setSearchDropOverIndex(null);
+          setQueueDragOverIndex(null);
+          void addDroppedSearchTrack(droppedTrack);
+        }}
+      >
         {queue.length === 0 ? (
-          <p className="text-gray-400 text-sm text-center">Noch keine Songs in der Queue 🎵</p>
+          <p
+            className={`text-sm text-center rounded-lg border border-dashed p-4 transition ${
+              isSearchTrackDropActive
+                ? "text-green-200 border-green-500 bg-green-900/20"
+                : "text-gray-400 border-neutral-700 bg-neutral-900/40"
+            }`}
+          >
+            Noch keine Songs in der Queue 🎵
+          </p>
         ) : (
           queue.map((track, index) => {
             const isInMobileTop = index < MOBILE_TOP_LIMIT;
@@ -341,13 +446,33 @@ export default function PartyQueue() {
                 <li
                   data-queue-index={index}
                   onDragOver={(e: DragEvent<HTMLLIElement>) => {
+                    if (isSearchTrackDragEvent(e)) {
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = "copy";
+                      setIsSearchTrackDropActive(true);
+                      setSearchDropOverIndex(index);
+                      setQueueDragOverIndex(null);
+                      return;
+                    }
                     e.preventDefault();
-                    setDragOverIndex(index);
+                    setQueueDragOverIndex(index);
+                    setSearchDropOverIndex(null);
                   }}
                   onDragLeave={() => {
-                    if (dragOverIndex === index) setDragOverIndex(null);
+                    if (queueDragOverIndex === index) setQueueDragOverIndex(null);
+                    if (searchDropOverIndex === index) setSearchDropOverIndex(null);
                   }}
                   onDrop={(e: DragEvent<HTMLLIElement>) => {
+                    e.stopPropagation();
+                    const droppedTrack = extractSearchTrackFromDrop(e);
+                    if (droppedTrack) {
+                      e.preventDefault();
+                      setIsSearchTrackDropActive(false);
+                      setSearchDropOverIndex(null);
+                      setQueueDragOverIndex(null);
+                      void addDroppedSearchTrack(droppedTrack, index);
+                      return;
+                    }
                     e.preventDefault();
                     void handleTrackDrop(index);
                   }}
@@ -381,8 +506,10 @@ export default function PartyQueue() {
                     setTouchDragOverIndex(null);
                   }}
                   className={`flex items-center justify-between bg-neutral-900 border rounded-lg p-3 hover:bg-neutral-800 transition ${
-                    effectiveDragOverIndex === index
-                      ? "border-green-500"
+                    searchDropOverIndex === index
+                      ? "border-green-500 bg-green-900/20"
+                      : effectiveQueueDragOverIndex === index
+                      ? "border-sky-500"
                       : isInMobileTop
                       ? "border-yellow-700"
                       : "border-neutral-800"
@@ -435,7 +562,8 @@ export default function PartyQueue() {
                       onDragStart={() => handleTrackDragStart(index)}
                       onDragEnd={() => {
                         setDragFromIndex(null);
-                        setDragOverIndex(null);
+                        setQueueDragOverIndex(null);
+                        setSearchDropOverIndex(null);
                       }}
                       className="hidden sm:inline-block text-sm px-2 py-1.5 min-h-9 rounded text-gray-300 hover:text-white hover:bg-neutral-700 transition cursor-grab active:cursor-grabbing"
                       title="Ziehen zum Verschieben"
@@ -476,7 +604,7 @@ export default function PartyQueue() {
                           Nach unten
                         </button>
                         <button
-                          onClick={() => void handleRemoveTrack(index)}
+                          onClick={() => void handleRemoveTrack(track.id, index)}
                           className="w-full text-left px-3 py-2 text-sm text-red-300 hover:bg-neutral-800 rounded"
                         >
                           Song löschen

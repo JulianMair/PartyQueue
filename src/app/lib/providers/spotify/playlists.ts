@@ -90,16 +90,30 @@ export async function searchTracks(
   if (!trimmed) return [];
   const safeLimit = Math.min(50, Math.max(1, limit));
 
-  const params = new URLSearchParams({
-    q: trimmed,
-    type: "track",
-    limit: String(safeLimit),
-    market: "from_token",
-  });
+  const buildParams = (withMarketFromToken: boolean) => {
+    const params = new URLSearchParams({
+      q: trimmed,
+      type: "track",
+      limit: String(safeLimit),
+    });
+    if (withMarketFromToken) {
+      params.set("market", "from_token");
+    }
+    return params;
+  };
 
-  const res = await spotifyApiFetch(`https://api.spotify.com/v1/search?${params.toString()}`, {
-    cache: "no-store",
-  });
+  let res = await spotifyApiFetch(
+    `https://api.spotify.com/v1/search?${buildParams(true).toString()}`,
+    { cache: "no-store" }
+  );
+
+  // Fallback: manche Konten/Token liefern bei market=from_token inkonsistente Fehler.
+  if (!res.ok && (res.status === 400 || res.status === 404)) {
+    res = await spotifyApiFetch(
+      `https://api.spotify.com/v1/search?${buildParams(false).toString()}`,
+      { cache: "no-store" }
+    );
+  }
 
   if (!res.ok) {
     const details = await res.text();

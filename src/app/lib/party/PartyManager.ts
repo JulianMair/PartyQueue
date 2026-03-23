@@ -32,6 +32,7 @@ export class PartyManager extends EventEmitter {
   private fadeDurationSeconds = 0;
   private transitionInProgress = false;
   private lastVoteAt = 0;
+  private pendingTrimHandledTrackId: string | null = null;
 
 
   constructor(
@@ -107,6 +108,27 @@ export class PartyManager extends EventEmitter {
     return a.votes > b.votes || (a.votes === b.votes && a.addedAt < b.addedAt);
   }
 
+  /**
+   * Ermittelt den letzten Song aus der aktuell votbaren Top-10 (Index 9).
+   * Nur wenn mehr als 10 Songs vorhanden sind, wird ein Kandidat geliefert.
+   */
+  private getVotingTailTrimCandidateId() {
+    const mobileVotingLimit = 10;
+    if (this.state.queue.length <= mobileVotingLimit) return null;
+    return this.state.queue[mobileVotingLimit - 1]?.id ?? null;
+  }
+
+  /** Entfernt einen Queue-Track ohne eigene Events/Version-Bump. */
+  private removeTrackByIdSilently(trackId: string) {
+    const index = this.state.queue.findIndex((track) => track.id === trackId);
+    if (index < 0) return false;
+    const [removed] = this.state.queue.splice(index, 1);
+    if (removed) {
+      this.voted.forEach((tracks) => tracks.delete(removed.id));
+    }
+    return Boolean(removed);
+  }
+
   async startParty() {
     this.state.isActive = true;
     this.startSync();
@@ -126,12 +148,12 @@ export class PartyManager extends EventEmitter {
   }
 
   /** SONG ZUR PARTYQUEUE HINZUFÜGEN (nur intern!) */
-  async addTrack(track: Track) {
-    await this.addTracks([track]);
+  async addTrack(track: Track, insertIndex?: number) {
+    await this.addTracks([track], insertIndex);
   }
 
   /** MEHRERE SONGS ZUR PARTYQUEUE HINZUFÜGEN (nur intern!) */
-  async addTracks(tracks: Track[]) {
+  async addTracks(tracks: Track[], insertIndex?: number) {
     const existingIds = new Set(
       this.state.queue
         .map((track) => track.id)
@@ -153,7 +175,15 @@ export class PartyManager extends EventEmitter {
       addedAt: now + index,
     }));
 
-    this.state.queue.push(...partyTracks);
+    if (typeof insertIndex === "number" && Number.isFinite(insertIndex)) {
+      const safeIndex = Math.max(
+        0,
+        Math.min(this.state.queue.length, Math.floor(insertIndex))
+      );
+      this.state.queue.splice(safeIndex, 0, ...partyTracks);
+    } else {
+      this.state.queue.push(...partyTracks);
+    }
     this.bumpVersion();
     this.emit("queueUpdated", this.state.queue);
     this.emit("stateChanged", this.state);
@@ -220,6 +250,15 @@ export class PartyManager extends EventEmitter {
     this.bumpVersion();
     this.emit("queueUpdated", this.state.queue);
     this.emit("stateChanged", this.state);
+  }
+
+  /** HOST: Queue-Eintrag stabil über Track-ID löschen */
+  removeTrackById(trackId: string) {
+    if (!trackId) return false;
+    const index = this.state.queue.findIndex((track) => track.id === trackId);
+    if (index < 0) return false;
+    this.removeTrackAt(index);
+    return true;
   }
 
   removeLowestRankedTracks(
@@ -428,6 +467,7 @@ export class PartyManager extends EventEmitter {
       if (this.state.queue.length === 0) return false;
       const next = this.state.queue[0];
       if (!next) return false;
+      const votingTailCandidateId = this.getVotingTailTrimCandidateId();
 
       try {
         await this.provider.play(next.uri);
@@ -440,6 +480,10 @@ export class PartyManager extends EventEmitter {
       this.state.currentTrack = next;
       this.playedTrackIds.add(next.id);
       this.voted.forEach((tracks) => tracks.delete(next.id));
+      if (votingTailCandidateId && votingTailCandidateId !== next.id) {
+        this.removeTrackByIdSilently(votingTailCandidateId);
+      }
+      this.pendingTrimHandledTrackId = next.id;
 
       this.bumpVersion();
       this.emit("trackStarted", next);
@@ -520,6 +564,9 @@ export class PartyManager extends EventEmitter {
         if (!ok) break;
         await wait(stepDelayMs);
       }
+
+      // Always try to restore the original level to avoid "silent playback" after partial fade.
+      await safeSetVolume(currentVolume);
     } finally {
       this.transitionInProgress = false;
     }
@@ -551,6 +598,7 @@ export class PartyManager extends EventEmitter {
       // FALL 2: Spotify hat auf einen neuen Song gewechselt
       if (spotifyUri !== currentUri) {
         console.log(`[PartyManager] Trackwechsel erkannt: ${spotifyItem.name}`);
+        const votingTailCandidateId = this.getVotingTailTrimCandidateId();
 
         const newTrack: PartyTrack = {
           id: spotifyItem.id,
@@ -572,6 +620,13 @@ export class PartyManager extends EventEmitter {
         this.state.queue = this.state.queue.filter(
           (t) => t.uri !== spotifyUri
         );
+        if (newTrack.id === this.pendingTrimHandledTrackId) {
+          this.pendingTrimHandledTrackId = null;
+        } else {
+          if (votingTailCandidateId && votingTailCandidateId !== newTrack.id) {
+            this.removeTrackByIdSilently(votingTailCandidateId);
+          }
+        }
 
         this.bumpVersion();
         this.emit("trackStarted", newTrack);
