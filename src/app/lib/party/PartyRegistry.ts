@@ -60,6 +60,9 @@ class PartyRegistry {
       manager.setFadeDurationSeconds(
         sanitizePartySettings(persisted.settings ?? DEFAULT_PARTY_SETTINGS).fadeSeconds
       );
+      manager.setTransitionProfile(
+        sanitizePartySettings(persisted.settings ?? DEFAULT_PARTY_SETTINGS).transitionProfile
+      );
 
       this.attachPersistence(manager, persisted.partyId);
 
@@ -414,6 +417,7 @@ class PartyRegistry {
     };
     this.partyMeta.set(partyId, metadata);
     manager.setFadeDurationSeconds(settings.fadeSeconds);
+    manager.setTransitionProfile(settings.transitionProfile);
     this.attachPersistence(manager, partyId);
 
     await this.store.createParty({
@@ -476,6 +480,9 @@ class PartyRegistry {
     });
     manager.setFadeDurationSeconds(
       sanitizePartySettings(persisted.settings ?? DEFAULT_PARTY_SETTINGS).fadeSeconds
+    );
+    manager.setTransitionProfile(
+      sanitizePartySettings(persisted.settings ?? DEFAULT_PARTY_SETTINGS).transitionProfile
     );
     this.attachPersistence(manager, partyId);
 
@@ -553,6 +560,7 @@ class PartyRegistry {
       updatedAt: new Date().toISOString(),
     });
     manager.setFadeDurationSeconds(settings.fadeSeconds);
+    manager.setTransitionProfile(settings.transitionProfile);
 
     const addedCount = await this.seedQueueFromSettings(partyId, settings);
     await this.persistParty(partyId);

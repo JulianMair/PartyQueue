@@ -1,6 +1,7 @@
 // src/app/lib/party/PartyManager.ts
 import EventEmitter from "events";
 import { MusicProvider, Track, PartyTrack } from "../providers/types";
+import type { TransitionProfile } from "./settings";
 
 export interface PartyState {
   id: string;
@@ -30,9 +31,18 @@ export class PartyManager extends EventEmitter {
   private voted: Map<string, Set<string>> = new Map();
   private playedTrackIds: Set<string> = new Set();
   private fadeDurationSeconds = 0;
+  private transitionProfile: TransitionProfile = "balanced";
   private transitionInProgress = false;
   private lastVoteAt = 0;
   private pendingTrimHandledTrackId: string | null = null;
+  private suppressSyncMismatchUntil = 0;
+  private lastAdvanceSourceTrackId: string | null = null;
+  private lastAdvanceTriggerAt = 0;
+  private autoAdvanceCooldownUntil = 0;
+  private lastPlaybackTrackId: string | null = null;
+  private lastPlaybackProgressMs = 0;
+  private lastPlaybackObservedAt = 0;
+  private suppressAutoAdvanceUntil = 0;
 
 
   constructor(
@@ -86,6 +96,40 @@ export class PartyManager extends EventEmitter {
 
   setFadeDurationSeconds(seconds: number) {
     this.fadeDurationSeconds = Math.min(12, Math.max(0, Number(seconds) || 0));
+  }
+
+  setTransitionProfile(profile: TransitionProfile) {
+    this.transitionProfile = profile;
+  }
+
+  private getTransitionTuning() {
+    switch (this.transitionProfile) {
+      case "smooth":
+        return {
+          mismatchGraceMs: 7000,
+          fadeMinSteps: 3,
+          fadeMaxSteps: 5,
+          fadeStepFactor: 2.4,
+          transitionBufferMs: 1300,
+        };
+      case "aggressive":
+        return {
+          mismatchGraceMs: 3000,
+          fadeMinSteps: 2,
+          fadeMaxSteps: 3,
+          fadeStepFactor: 1.6,
+          transitionBufferMs: 500,
+        };
+      case "balanced":
+      default:
+        return {
+          mismatchGraceMs: 5000,
+          fadeMinSteps: 2,
+          fadeMaxSteps: 4,
+          fadeStepFactor: 2,
+          transitionBufferMs: 800,
+        };
+    }
   }
 
   private toPartyTrack(track: Track): PartyTrack {
@@ -462,6 +506,9 @@ export class PartyManager extends EventEmitter {
   public async playNextTrack(applyFade = true) {
     if (this.state.queue.length === 0 || this.transitionInProgress) return;
     this.transitionInProgress = true;
+    // Egal ob manuell oder automatisch ausgelöst: verhindere direkte Doppel-Advances.
+    this.autoAdvanceCooldownUntil = Date.now() + 7000;
+    this.lastAdvanceSourceTrackId = this.state.currentTrack?.id ?? null;
 
     const playNextInternal = async () => {
       if (this.state.queue.length === 0) return false;
@@ -470,6 +517,10 @@ export class PartyManager extends EventEmitter {
       const votingTailCandidateId = this.getVotingTailTrimCandidateId();
 
       try {
+        const tuning = this.getTransitionTuning();
+        // Spotify braucht kurz, bis ein neues play() konsistent im /me/player sichtbar ist.
+        // In dieser Zeit darf der Sync nicht sofort "korrigieren", sonst entstehen Sprünge.
+        this.suppressSyncMismatchUntil = Date.now() + tuning.mismatchGraceMs;
         await this.provider.play(next.uri);
       } catch (err) {
         console.error("[PartyManager] Konnte nächsten Track nicht starten:", err);
@@ -489,6 +540,7 @@ export class PartyManager extends EventEmitter {
       this.emit("trackStarted", next);
       this.emit("queueUpdated", this.state.queue);
       this.emit("stateChanged", this.state);
+      this.lastAdvanceTriggerAt = Date.now();
 
       console.log(`[PartyManager] Spiele nächsten Track: ${next.name}`);
       return true;
@@ -511,7 +563,6 @@ export class PartyManager extends EventEmitter {
       const totalFadeMs = applyFade
         ? Math.round(this.fadeDurationSeconds * 1000)
         : 0;
-      const halfFadeMs = Math.floor(totalFadeMs / 2);
       if (totalFadeMs <= 0) {
         await playNextInternal();
         return;
@@ -533,18 +584,13 @@ export class PartyManager extends EventEmitter {
         return;
       }
 
-      const steps = Math.max(3, Math.min(12, Math.floor(this.fadeDurationSeconds * 4)));
-      const stepDelayMs = Math.max(60, Math.floor(halfFadeMs / steps));
-      let fadeOutWorked = true;
-
-      for (let step = steps - 1; step >= 0; step -= 1) {
-        const volume = Math.round((currentVolume * step) / steps);
-        const ok = await safeSetVolume(volume);
-        if (!ok) {
-          fadeOutWorked = false;
-          break;
-        }
-        await wait(stepDelayMs);
+      // Simpler Fade: nur eine Reduktion + Restore.
+      // Weniger API-Calls => weniger Mikro-Ruckler beim Übergang.
+      const fadeDownVolume = Math.max(0, Math.round(currentVolume * 0.35));
+      const fadeDownWorked =
+        currentVolume <= 0 ? true : await safeSetVolume(fadeDownVolume);
+      if (fadeDownWorked) {
+        await wait(Math.min(totalFadeMs, 1200));
       }
 
       const didStartNext = await playNextInternal();
@@ -553,23 +599,41 @@ export class PartyManager extends EventEmitter {
         return;
       }
 
-      if (!fadeOutWorked) {
+      if (!fadeDownWorked) {
         await safeSetVolume(currentVolume);
         return;
       }
 
-      for (let step = 1; step <= steps; step += 1) {
-        const volume = Math.round((currentVolume * step) / steps);
-        const ok = await safeSetVolume(volume);
-        if (!ok) break;
-        await wait(stepDelayMs);
-      }
-
-      // Always try to restore the original level to avoid "silent playback" after partial fade.
+      await wait(Math.min(250, Math.max(80, Math.floor(totalFadeMs / 4))));
       await safeSetVolume(currentVolume);
     } finally {
       this.transitionInProgress = false;
     }
+  }
+
+  /**
+   * Übernimmt den Queue-Kopf als aktuell laufenden Song, ohne erneut `play()` aufzurufen.
+   * Wird genutzt, wenn Spotify bereits auf den erwarteten Queue-Track gewechselt hat.
+   */
+  private promoteQueueHeadAsCurrent() {
+    const next = this.state.queue[0];
+    if (!next) return false;
+
+    const votingTailCandidateId = this.getVotingTailTrimCandidateId();
+    this.state.queue.shift();
+    this.state.currentTrack = next;
+    this.playedTrackIds.add(next.id);
+    this.voted.forEach((tracks) => tracks.delete(next.id));
+    if (votingTailCandidateId && votingTailCandidateId !== next.id) {
+      this.removeTrackByIdSilently(votingTailCandidateId);
+    }
+    this.pendingTrimHandledTrackId = next.id;
+
+    this.bumpVersion();
+    this.emit("trackStarted", next);
+    this.emit("queueUpdated", this.state.queue);
+    this.emit("stateChanged", this.state);
+    return true;
   }
 
   /** HAUPT-SYNC LOGIK */
@@ -594,44 +658,55 @@ export class PartyManager extends EventEmitter {
 
       const spotifyUri = spotifyItem.uri;
       const currentUri = this.state.currentTrack?.uri;
+      const now = Date.now();
 
       // FALL 2: Spotify hat auf einen neuen Song gewechselt
       if (spotifyUri !== currentUri) {
         console.log(`[PartyManager] Trackwechsel erkannt: ${spotifyItem.name}`);
-        const votingTailCandidateId = this.getVotingTailTrimCandidateId();
-
-        const newTrack: PartyTrack = {
-          id: spotifyItem.id,
-          uri: spotifyItem.uri,
-          name: spotifyItem.name,
-          artist: spotifyItem.artists.map((a: any) => a.name).join(", "),
-          albumArt: spotifyItem.album?.images?.[0]?.url,
-          durationMs: spotifyItem.duration_ms,
-          votes: 0,
-          addedAt: Date.now(),
-        };
-
-        this.state.currentTrack = newTrack;
-        if (newTrack.id) {
-          this.playedTrackIds.add(newTrack.id);
+        if (Date.now() < this.suppressSyncMismatchUntil) {
+          return;
         }
-
-        // Entferne aus unserer PartyQueue, falls er drin war
-        this.state.queue = this.state.queue.filter(
-          (t) => t.uri !== spotifyUri
-        );
-        if (newTrack.id === this.pendingTrimHandledTrackId) {
+        this.lastAdvanceSourceTrackId = null;
+        // Dedupe: Wechsel wurde bereits durch `playNextTrack` verarbeitet.
+        if (spotifyItem.id && spotifyItem.id === this.pendingTrimHandledTrackId) {
           this.pendingTrimHandledTrackId = null;
         } else {
-          if (votingTailCandidateId && votingTailCandidateId !== newTrack.id) {
-            this.removeTrackByIdSilently(votingTailCandidateId);
+          const queueHead = this.state.queue[0];
+
+          if (queueHead && queueHead.uri === spotifyUri) {
+            // Spotify spielt bereits den erwarteten höchsten Queue-Song.
+            this.promoteQueueHeadAsCurrent();
+          } else if (queueHead) {
+            // Unerwarteter externer Trackwechsel:
+            // Kein aggressives Gegensteuern hier, um Song-Skips zu vermeiden.
+            console.warn(
+              "[PartyManager] Unerwarteter Spotify-Track erkannt, warte auf stabilen Wechsel"
+            );
+            return;
+          } else {
+            // Nur wenn Queue leer ist, spiegeln wir den externen Track als Info.
+            const newTrack: PartyTrack = {
+              id: spotifyItem.id,
+              uri: spotifyItem.uri,
+              name: spotifyItem.name,
+              artist: spotifyItem.artists.map((a: any) => a.name).join(", "),
+              albumArt: spotifyItem.album?.images?.[0]?.url,
+              durationMs: spotifyItem.duration_ms,
+              votes: 0,
+              addedAt: Date.now(),
+            };
+
+            this.state.currentTrack = newTrack;
+            if (newTrack.id) {
+              this.playedTrackIds.add(newTrack.id);
+            }
+
+            this.bumpVersion();
+            this.emit("trackStarted", newTrack);
+            this.emit("queueUpdated", this.state.queue);
+            this.emit("stateChanged", this.state);
           }
         }
-
-        this.bumpVersion();
-        this.emit("trackStarted", newTrack);
-        this.emit("queueUpdated", this.state.queue);
-        this.emit("stateChanged", this.state);
       }
 
       // FALL 3: Ist der Song bald vorbei? (letzte 5 Sekunden)
@@ -640,15 +715,43 @@ export class PartyManager extends EventEmitter {
       const remaining = duration - progress;
       if (!isPlaying) return;
 
+      // Seek-/Sprung-Erkennung:
+      // Wenn sich Progress innerhalb kurzer Zeit ungewöhnlich stark ändert,
+      // unterdrücken wir Auto-Advance kurz, damit Vorspulen nicht direkt skippt.
+      const observedTrackId = spotifyItem.id ?? spotifyUri;
+      if (
+        this.lastPlaybackTrackId === observedTrackId &&
+        this.lastPlaybackObservedAt > 0
+      ) {
+        const deltaProgress = Math.abs(progress - this.lastPlaybackProgressMs);
+        const deltaTimeMs = now - this.lastPlaybackObservedAt;
+        const isLikelySeekJump = deltaProgress > 6000 && deltaTimeMs < 3000;
+        if (isLikelySeekJump) {
+          this.suppressAutoAdvanceUntil = now + 6000;
+        }
+      }
+      this.lastPlaybackTrackId = observedTrackId;
+      this.lastPlaybackProgressMs = progress;
+      this.lastPlaybackObservedAt = now;
+
       const transitionWindowMs = Math.max(
         1500,
-        Math.round(this.fadeDurationSeconds * 1000) + 800
+        Math.round(this.fadeDurationSeconds * 1000) +
+          this.getTransitionTuning().transitionBufferMs
       );
 
       if (remaining < transitionWindowMs) {
         console.log("[PartyManager] Song endet bald → bereite nächsten vor");
 
-        if (!this.transitionInProgress) {
+        if (now < this.autoAdvanceCooldownUntil) return;
+        if (now < this.suppressAutoAdvanceUntil) return;
+        const isDuplicateTrackTrigger =
+          Boolean(spotifyItem.id) && spotifyItem.id === this.lastAdvanceSourceTrackId;
+        const isTooSoon = now - this.lastAdvanceTriggerAt < 1800;
+
+        if (!this.transitionInProgress && !isDuplicateTrackTrigger && !isTooSoon) {
+          this.lastAdvanceSourceTrackId = spotifyItem.id ?? null;
+          this.lastAdvanceTriggerAt = now;
           await this.playNextTrack();
         }
       }

@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
 import { partyRegistry } from "@/app/lib/party/PartyRegistry";
 import type { Track } from "@/app/lib/providers/types";
+import { requireAuthenticatedRequest } from "@/app/lib/auth/require-auth";
 
 export async function POST(req: Request) {
   try {
+    const unauthorized = await requireAuthenticatedRequest();
+    if (unauthorized) return unauthorized;
+
     const body = await req.json();
     const { partyId, track, insertIndex } = body as {
       partyId: string;

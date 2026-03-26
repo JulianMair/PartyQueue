@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server";
 import { getProvider } from "@/app/lib/providers/factory";
+import { requireAuthenticatedRequest } from "@/app/lib/auth/require-auth";
 
 export async function GET(req: Request) {
   try {
+    const unauthorized = await requireAuthenticatedRequest();
+    if (unauthorized) return unauthorized;
+
     const { searchParams } = new URL(req.url);
     const q = (searchParams.get("q") || "").trim();
     const requestedLimit = parseInt(searchParams.get("limit") || "25", 10);
@@ -27,9 +31,19 @@ export async function GET(req: Request) {
     const message =
       status === 401
         ? "Spotify session expired"
+        : status === 429
+        ? "Spotify rate limit reached, please retry in a moment"
+        : status >= 500
+        ? "Spotify search temporarily unavailable"
         : error?.message || "Failed to search tracks";
     return NextResponse.json(
-      { error: message },
+      {
+        error: message,
+        providerError:
+          typeof error?.details === "string" && error.details.length > 0
+            ? error.details
+            : undefined,
+      },
       { status }
     );
   }

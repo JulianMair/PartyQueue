@@ -16,6 +16,8 @@ export const PARTY_GENRE_OPTIONS = [
 ] as const;
 
 export type PartyGenre = (typeof PARTY_GENRE_OPTIONS)[number];
+export const TRANSITION_PROFILE_OPTIONS = ["smooth", "balanced", "aggressive"] as const;
+export type TransitionProfile = (typeof TRANSITION_PROFILE_OPTIONS)[number];
 
 export interface PartySettings {
   genres: PartyGenre[];
@@ -23,6 +25,7 @@ export interface PartySettings {
   targetQueueSize: number;
   allowExplicit: boolean;
   fadeSeconds: number;
+  transitionProfile: TransitionProfile;
 }
 
 export const DEFAULT_PARTY_SETTINGS: PartySettings = {
@@ -31,6 +34,7 @@ export const DEFAULT_PARTY_SETTINGS: PartySettings = {
   targetQueueSize: 20,
   allowExplicit: false,
   fadeSeconds: 0,
+  transitionProfile: "balanced",
 };
 
 export function sanitizePartySettings(input: unknown): PartySettings {
@@ -53,5 +57,10 @@ export function sanitizePartySettings(input: unknown): PartySettings {
       12,
       Math.max(0, Number.isFinite(source.fadeSeconds) ? Number(source.fadeSeconds) : 0)
     ),
+    transitionProfile: TRANSITION_PROFILE_OPTIONS.includes(
+      source.transitionProfile as TransitionProfile
+    )
+      ? (source.transitionProfile as TransitionProfile)
+      : "balanced",
   };
 }

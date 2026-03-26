@@ -1,11 +1,15 @@
 import { NextResponse } from "next/server";
 import { getProvider } from "@/app/lib/providers/factory";
+import { requireAuthenticatedRequest } from "@/app/lib/auth/require-auth";
 
 export async function GET(
   req: Request,
   context: { params: Promise<{ id: string }> } // <-- Promise hier
 ) {
   try {
+    const unauthorized = await requireAuthenticatedRequest();
+    if (unauthorized) return unauthorized;
+
     const { id } = await context.params; // <-- params awaiten
     const { searchParams } = new URL(req.url);
     const offset = parseInt(searchParams.get("offset") || "0");

@@ -2,6 +2,7 @@
 
 import {
   PARTY_GENRE_OPTIONS,
+  TRANSITION_PROFILE_OPTIONS,
   type PartyGenre,
   type PartySettings,
 } from "@/app/lib/party/settings";
@@ -176,6 +177,35 @@ export default function PartyManagementSheet({
                 }
                 className="mt-1 w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-gray-100"
               />
+            </label>
+
+            <label className="block">
+              <span className="text-sm text-gray-300">Übergangsprofil</span>
+              <select
+                value={pendingSettings.transitionProfile}
+                onChange={(e) =>
+                  onPendingSettingsChange({
+                    ...pendingSettings,
+                    transitionProfile:
+                      e.target.value === "smooth" ||
+                      e.target.value === "balanced" ||
+                      e.target.value === "aggressive"
+                        ? e.target.value
+                        : "balanced",
+                  })
+                }
+                className="mt-1 w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-gray-100"
+              >
+                {TRANSITION_PROFILE_OPTIONS.map((profile) => (
+                  <option key={profile} value={profile}>
+                    {profile === "smooth"
+                      ? "Smooth (maximal weich)"
+                      : profile === "aggressive"
+                      ? "Aggressive (direkt)"
+                      : "Balanced (empfohlen)"}
+                  </option>
+                ))}
+              </select>
             </label>
 
             <label className="flex items-center justify-between gap-3">

@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { partyRegistry } from "@/app/lib/party/PartyRegistry";
+import { requireAuthenticatedRequest } from "@/app/lib/auth/require-auth";
 
 export async function GET() {
+  const unauthorized = await requireAuthenticatedRequest();
+  if (unauthorized) return unauthorized;
+
   const active = await partyRegistry.getActiveParty();
 
   if (!active) {

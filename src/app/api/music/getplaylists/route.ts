@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
 import { getProvider } from "@/app/lib/providers/factory";
+import { requireAuthenticatedRequest } from "@/app/lib/auth/require-auth";
 
 
 export async function GET() {
   try {
+    const unauthorized = await requireAuthenticatedRequest();
+    if (unauthorized) return unauthorized;
+
     const provider = getProvider("spotify"); // später dynamisch
     const playlists = await provider.getPlaylists();
     return NextResponse.json(playlists);

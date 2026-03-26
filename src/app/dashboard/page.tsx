@@ -11,6 +11,9 @@ import PartyQueue from "@/app/components/PartyQueue";
 import Split from "react-split";
 
 export default function DashboardPage() {
+  const [username, setUsername] = useState<string>("Host");
+  const [avatarUrl, setAvatarUrl] = useState<string | undefined>(undefined);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [viewportWidth, setViewportWidth] = useState<number>(1400);
@@ -37,7 +40,51 @@ export default function DashboardPage() {
     }
   };
 
+  const fetchMe = async () => {
+    try {
+      const res = await fetch("/api/music/me", { cache: "no-store" });
+      if (res.status === 401) {
+        window.location.href = "/";
+        return;
+      }
+      if (!res.ok) return;
+      const data = await res.json();
+      if (typeof data?.displayName === "string" && data.displayName.trim().length > 0) {
+        setUsername(data.displayName);
+      }
+      if (typeof data?.avatarUrl === "string" && data.avatarUrl.length > 0) {
+        setAvatarUrl(data.avatarUrl);
+      } else {
+        setAvatarUrl(undefined);
+      }
+    } catch (err) {
+      console.error("Fehler beim Laden des Users:", err);
+    }
+  };
+
+  const handleLogout = async () => {
+    if (isLoggingOut) return;
+    setIsLoggingOut(true);
+    try {
+      const res = await fetch("/api/auth/logout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (typeof data?.redirectTo === "string" && data.redirectTo.length > 0) {
+        window.location.href = data.redirectTo;
+        return;
+      }
+    } catch (err) {
+      console.error("Logout fehlgeschlagen:", err);
+    } finally {
+      setIsLoggingOut(false);
+    }
+    window.location.href = "/";
+  };
+
   useEffect(() => {
+    fetchMe();
     fetchPlaylists();
   }, []);
 
@@ -58,7 +105,12 @@ export default function DashboardPage() {
     <div className="flex flex-col h-[100dvh] bg-neutral-950 text-gray-100 overflow-hidden">
       {/* Header */}
       <header className="h-14 md:h-16 border-b border-neutral-800 shrink-0 bg-neutral-950/95 backdrop-blur">
-        <Header username="HostName" onLogout={() => console.log("Logout")} />
+        <Header
+          username={username}
+          avatarUrl={avatarUrl}
+          onLogout={handleLogout}
+          isLoggingOut={isLoggingOut}
+        />
       </header>
 
       {/* Hauptinhalt */}

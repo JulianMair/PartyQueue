@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
 import { partyRegistry } from "@/app/lib/party/PartyRegistry";
 import { sanitizePartySettings } from "@/app/lib/party/settings";
+import { requireAuthenticatedRequest } from "@/app/lib/auth/require-auth";
 
 export async function POST(req: Request) {
   try {
+    const unauthorized = await requireAuthenticatedRequest();
+    if (unauthorized) return unauthorized;
+
     const body = await req.json().catch(() => ({}));
     const partyId = typeof body?.partyId === "string" ? body.partyId : "";
     const settings = sanitizePartySettings(body?.settings);

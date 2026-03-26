@@ -1,4 +1,4 @@
-import { spotifyApiFetch } from "./auth";
+import { spotifyApiFetch, spotifyClientCredentialsFetch } from "./auth";
 import { Playlist, Track } from "../types";
 
 export async function getPlaylists(): Promise<Playlist[]> {
@@ -102,24 +102,74 @@ export async function searchTracks(
     return params;
   };
 
-  let res = await spotifyApiFetch(
-    `https://api.spotify.com/v1/search?${buildParams(true).toString()}`,
-    { cache: "no-store" }
-  );
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  const shouldRetry = (status: number) =>
+    status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
+
+  const fetchSearch = async (
+    withMarketFromToken: boolean,
+    options?: { useClientCredentials?: boolean }
+  ) => {
+    const useClientCredentials = Boolean(options?.useClientCredentials);
+    let lastResponse: Response | null = null;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const params = buildParams(
+        useClientCredentials ? false : withMarketFromToken
+      ).toString();
+      const requestUrl = `https://api.spotify.com/v1/search?${params}`;
+      const response = useClientCredentials
+        ? await spotifyClientCredentialsFetch(requestUrl, { cache: "no-store" })
+        : await spotifyApiFetch(requestUrl, { cache: "no-store" });
+      lastResponse = response;
+      if (!shouldRetry(response.status) || attempt === 2) break;
+
+      const retryAfter = Number(response.headers.get("retry-after"));
+      const delayMs = Number.isFinite(retryAfter) && retryAfter > 0
+        ? retryAfter * 1000
+        : 300 * Math.pow(2, attempt);
+      await sleep(delayMs);
+    }
+    return lastResponse!;
+  };
+
+  let res = await fetchSearch(true);
 
   // Fallback: manche Konten/Token liefern bei market=from_token inkonsistente Fehler.
-  if (!res.ok && (res.status === 400 || res.status === 404)) {
-    res = await spotifyApiFetch(
-      `https://api.spotify.com/v1/search?${buildParams(false).toString()}`,
-      { cache: "no-store" }
-    );
+  if (!res.ok && (res.status === 400 || res.status === 404 || res.status === 422)) {
+    res = await fetchSearch(false);
+  }
+
+  // Fallback auf App-Token, falls User-Session/Scopes instabil sind.
+  if (!res.ok && (res.status === 401 || res.status === 403)) {
+    res = await fetchSearch(false, { useClientCredentials: true });
+  }
+
+  // Letzter Fallback für Sonderzeichen-lastige Queries.
+  if (!res.ok && trimmed.includes(":")) {
+    const simplifiedQuery = trimmed.replace(/:+/g, " ").replace(/\s+/g, " ").trim();
+    if (simplifiedQuery) {
+      const fallbackParams = new URLSearchParams({
+        q: simplifiedQuery,
+        type: "track",
+        limit: String(safeLimit),
+      });
+      res = await spotifyApiFetch(
+        `https://api.spotify.com/v1/search?${fallbackParams.toString()}`,
+        { cache: "no-store" }
+      );
+    }
   }
 
   if (!res.ok) {
     const details = await res.text();
     console.error("Fehler bei Spotify Suche:", res.status, details);
-    const error = new Error("Spotify search failed") as Error & { status?: number };
+    const error = new Error("Spotify search failed") as Error & {
+      status?: number;
+      details?: string;
+    };
     error.status = res.status;
+    error.details = details;
     throw error;
   }
 

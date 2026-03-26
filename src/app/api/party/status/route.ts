@@ -1,9 +1,13 @@
 // app/api/party/status/route.ts
 import { NextResponse } from "next/server";
 import { partyRegistry } from "@/app/lib/party/PartyRegistry";
+import { requireAuthenticatedRequest } from "@/app/lib/auth/require-auth";
 
 export async function GET(req: Request) {
   try {
+    const unauthorized = await requireAuthenticatedRequest();
+    if (unauthorized) return unauthorized;
+
     const { searchParams } = new URL(req.url);
     const partyId = searchParams.get("partyId");
 
