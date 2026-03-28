@@ -13,6 +13,7 @@ export async function getCurrentTrack(): Promise<Track | null> {
     name: data.item.name,
     artist: data.item.artists.map((a: any) => a.name).join(", "),
     uri: data.item.uri,
+    previewUrl: data.item.preview_url ?? null,
     albumArt: data.item.album.images?.[0]?.url,
     durationMs: data.item.duration_ms,
     progressMs: data.progress_ms,

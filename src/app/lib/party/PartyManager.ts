@@ -690,6 +690,7 @@ export class PartyManager extends EventEmitter {
               uri: spotifyItem.uri,
               name: spotifyItem.name,
               artist: spotifyItem.artists.map((a: any) => a.name).join(", "),
+              previewUrl: spotifyItem.preview_url ?? null,
               albumArt: spotifyItem.album?.images?.[0]?.url,
               durationMs: spotifyItem.duration_ms,
               votes: 0,

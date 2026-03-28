@@ -9,6 +9,7 @@ export interface Track {
   name: string;
   artist: string;
   uri: string;
+  previewUrl?: string | null;
   albumArt?: string;
   durationMs?: number;
   progressMs?: number;

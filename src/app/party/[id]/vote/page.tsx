@@ -118,6 +118,19 @@ export default function MobileVotePage({ params }: { params: Promise<{ id: strin
   const top10SignatureRef = useRef("");
   const versionRef = useRef(0);
 
+  const buildSpotifyLink = (track: PartyTrack) => {
+    if (track.id) {
+      return `https://open.spotify.com/track/${encodeURIComponent(track.id)}`;
+    }
+    if (track.uri && track.uri.startsWith("spotify:track:")) {
+      const trackId = track.uri.split(":")[2];
+      if (trackId) {
+        return `https://open.spotify.com/track/${encodeURIComponent(trackId)}`;
+      }
+    }
+    return null;
+  };
+
   /* -------------------------------------------------------------------------- */
   /*                            LOAD TOP 10 SONGS                               */
   /* -------------------------------------------------------------------------- */
@@ -305,6 +318,7 @@ export default function MobileVotePage({ params }: { params: Promise<{ id: strin
         {songs.map((s, i) => {
           const voted = votedTrackIds.has(s.id);
           const pending = pendingVoteTrackIds.has(s.id);
+          const spotifyLink = buildSpotifyLink(s);
 
           return (
             <div
@@ -330,6 +344,27 @@ export default function MobileVotePage({ params }: { params: Promise<{ id: strin
                 <p className="text-gray-400 text-sm truncate">{s.artist}</p>
                 <p className="text-xs text-neutral-500">Votes: {s.votes}</p>
               </div>
+
+              {/* Spotify Link */}
+              {spotifyLink ? (
+                <a
+                  href={spotifyLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-2 py-1 rounded-lg text-xs border border-neutral-700 bg-neutral-800 text-neutral-200 hover:bg-neutral-700 transition"
+                  title="In Spotify öffnen"
+                  aria-label="In Spotify öffnen"
+                >
+                  Spotify
+                </a>
+              ) : (
+                <span
+                  className="px-2 py-1 rounded-lg text-xs border border-neutral-700 text-neutral-600"
+                  title="Kein Spotify-Link verfügbar"
+                >
+                  N/A
+                </span>
+              )}
 
               {/* Vote Button */}
               <button
