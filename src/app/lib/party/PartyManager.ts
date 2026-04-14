@@ -510,41 +510,54 @@ export class PartyManager extends EventEmitter {
     this.autoAdvanceCooldownUntil = Date.now() + 7000;
     this.lastAdvanceSourceTrackId = this.state.currentTrack?.id ?? null;
 
-    const playNextInternal = async () => {
-      if (this.state.queue.length === 0) return false;
-      const next = this.state.queue[0];
-      if (!next) return false;
-      const votingTailCandidateId = this.getVotingTailTrimCandidateId();
+    // WICHTIG: Track SOFORT aus der Queue nehmen, BEVOR der Fade startet.
+    // So kann Vote-Reordering waehrend des Fades den naechsten Track nicht mehr aendern.
+    const next = this.state.queue[0];
+    if (!next) {
+      this.transitionInProgress = false;
+      return;
+    }
+    const votingTailCandidateId = this.getVotingTailTrimCandidateId();
+    this.state.queue.shift();
+    this.pendingTrimHandledTrackId = next.id;
 
-      try {
-        const tuning = this.getTransitionTuning();
-        // Grace-Period VOR play() setzen, damit Sync waehrend des Netzwerk-Calls
-        // nicht faelschlicherweise "korrigiert" und Spruenge verursacht.
-        this.suppressSyncMismatchUntil = Date.now() + tuning.mismatchGraceMs + 2000;
-        await this.provider.play(next.uri);
-        // Nach erfolgreichem play() nochmal neu setzen mit genauem Zeitstempel
-        this.suppressSyncMismatchUntil = Date.now() + tuning.mismatchGraceMs;
-      } catch (err) {
-        console.error("[PartyManager] Konnte nächsten Track nicht starten:", err);
-        return false;
-      }
-
-      this.state.queue.shift();
+    const commitTransition = () => {
       this.state.currentTrack = next;
       this.playedTrackIds.add(next.id);
       this.voted.forEach((tracks) => tracks.delete(next.id));
       if (votingTailCandidateId && votingTailCandidateId !== next.id) {
         this.removeTrackByIdSilently(votingTailCandidateId);
       }
-      this.pendingTrimHandledTrackId = next.id;
-
       this.bumpVersion();
       this.emit("trackStarted", next);
       this.emit("queueUpdated", this.state.queue);
       this.emit("stateChanged", this.state);
       this.lastAdvanceTriggerAt = Date.now();
-
       console.log(`[PartyManager] Spiele nächsten Track: ${next.name}`);
+    };
+
+    const rollbackQueue = () => {
+      // Bei Fehler: Track wieder vorne einfuegen
+      this.state.queue.unshift(next);
+      this.pendingTrimHandledTrackId = null;
+      this.bumpVersion();
+      this.emit("queueUpdated", this.state.queue);
+      this.emit("stateChanged", this.state);
+    };
+
+    const playNextInternal = async () => {
+      try {
+        const tuning = this.getTransitionTuning();
+        this.suppressSyncMismatchUntil = Date.now() + tuning.mismatchGraceMs + 2000;
+        await this.provider.play(next.uri);
+        this.suppressSyncMismatchUntil = Date.now() + tuning.mismatchGraceMs;
+      } catch (err) {
+        console.error("[PartyManager] Konnte nächsten Track nicht starten:", err);
+        rollbackQueue();
+        return false;
+      }
+
+      commitTransition();
       return true;
     };
 
@@ -636,15 +649,18 @@ export class PartyManager extends EventEmitter {
   }
 
   /**
-   * Übernimmt den Queue-Kopf als aktuell laufenden Song, ohne erneut `play()` aufzurufen.
-   * Wird genutzt, wenn Spotify bereits auf den erwarteten Queue-Track gewechselt hat.
+   * Uebernimmt einen bestimmten Track aus der Queue als aktuell laufenden Song.
+   * Sucht per URI statt blind queue[0] zu nehmen, da Votes die Reihenfolge
+   * zwischen Spotify-Wechsel und diesem Aufruf geaendert haben koennten.
    */
-  private promoteQueueHeadAsCurrent() {
-    const next = this.state.queue[0];
+  private promoteQueueTrackAsCurrent(spotifyUri: string) {
+    const index = this.state.queue.findIndex((t) => t.uri === spotifyUri);
+    if (index < 0) return false;
+
+    const [next] = this.state.queue.splice(index, 1);
     if (!next) return false;
 
     const votingTailCandidateId = this.getVotingTailTrimCandidateId();
-    this.state.queue.shift();
     this.state.currentTrack = next;
     this.playedTrackIds.add(next.id);
     this.voted.forEach((tracks) => tracks.delete(next.id));
@@ -699,18 +715,34 @@ export class PartyManager extends EventEmitter {
         if (spotifyItem.id && spotifyItem.id === this.pendingTrimHandledTrackId) {
           this.pendingTrimHandledTrackId = null;
         } else {
-          const queueHead = this.state.queue[0];
+          // Suche den Track in der Queue per URI (nicht blind queue[0])
+          const matchInQueue = this.state.queue.some((t) => t.uri === spotifyUri);
 
-          if (queueHead && queueHead.uri === spotifyUri) {
-            // Spotify spielt bereits den erwarteten höchsten Queue-Song.
-            this.promoteQueueHeadAsCurrent();
-          } else if (queueHead) {
-            // Unerwarteter externer Trackwechsel:
-            // Kein aggressives Gegensteuern hier, um Song-Skips zu vermeiden.
+          if (matchInQueue) {
+            // Spotify spielt einen Track aus unserer Queue → per URI promoten
+            this.promoteQueueTrackAsCurrent(spotifyUri);
+          } else if (this.state.queue.length > 0) {
+            // Spotify spielt einen Track der NICHT in unserer Queue ist.
+            // Statt ewig zu warten: als externen Track akzeptieren und Queue intakt lassen.
             console.warn(
-              "[PartyManager] Unerwarteter Spotify-Track erkannt, warte auf stabilen Wechsel"
+              "[PartyManager] Externer Spotify-Track erkannt, aktualisiere currentTrack"
             );
-            return;
+            const externalTrack: PartyTrack = {
+              id: spotifyItem.id,
+              uri: spotifyItem.uri,
+              name: spotifyItem.name,
+              artist: spotifyItem.artists.map((a: any) => a.name).join(", "),
+              previewUrl: spotifyItem.preview_url ?? null,
+              albumArt: spotifyItem.album?.images?.[0]?.url,
+              durationMs: spotifyItem.duration_ms,
+              votes: 0,
+              addedAt: Date.now(),
+            };
+            this.state.currentTrack = externalTrack;
+            if (externalTrack.id) this.playedTrackIds.add(externalTrack.id);
+            this.bumpVersion();
+            this.emit("trackStarted", externalTrack);
+            this.emit("stateChanged", this.state);
           } else {
             // Nur wenn Queue leer ist, spiegeln wir den externen Track als Info.
             const newTrack: PartyTrack = {

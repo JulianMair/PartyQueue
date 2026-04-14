@@ -4,6 +4,42 @@ import { useEffect, useRef, useState, use } from "react";
 import { PartyTrack } from "@/app/lib/providers/types";
 
 /* -------------------------------------------------------------------------- */
+/*                         TICKER / MARQUEE COMPONENT                         */
+/* -------------------------------------------------------------------------- */
+
+function Ticker({
+  text,
+  className = "",
+}: {
+  text: string;
+  className?: string;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [scroll, setScroll] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const check = () => setScroll(el.scrollWidth > el.clientWidth + 1);
+    const id = requestAnimationFrame(check);
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return () => { cancelAnimationFrame(id); ro.disconnect(); };
+  }, [text]);
+
+  return (
+    <div ref={ref} className={`overflow-hidden whitespace-nowrap ${className}`}>
+      {scroll ? (
+        <span className="inline-flex ticker-scroll">
+          <span className="pr-8">{text}</span>
+          <span aria-hidden className="pr-8">{text}</span>
+        </span>
+      ) : text}
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
 /*                         CLIENT ID HANDLING (SAFE)                           */
 /* -------------------------------------------------------------------------- */
 
@@ -307,120 +343,140 @@ export default function MobileVotePage({ params }: { params: Promise<{ id: strin
   /* -------------------------------------------------------------------------- */
 
   return (
-    <div className="min-h-screen bg-black text-white flex flex-col max-w-md mx-auto">
-      <div className="flex-1 px-4 py-6 overflow-y-auto pb-24">
-        <h1 className="text-2xl font-bold text-center mb-6">🎉 Party Voting</h1>
+    <>
+      <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+      <meta name="theme-color" content="#0a0a0a" />
+
+      <div className="h-[100dvh] bg-neutral-950 text-white flex flex-col overflow-hidden">
+        {/* Header */}
+        <div className="flex-shrink-0 px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-2 text-center">
+          <h1 className="text-lg font-bold tracking-tight">Party Voting</h1>
+        </div>
 
         {error && (
-          <p className="text-center text-red-400 text-sm mb-4">{error}</p>
+          <div className="mx-4 mb-2 px-3 py-1.5 bg-red-900/30 border border-red-800/40 rounded-lg">
+            <p className="text-center text-red-400 text-xs">{error}</p>
+          </div>
         )}
 
-        {songs.length === 0 && !error && (
-          <p className="text-center text-neutral-400 mt-6">
-            Keine Songs verfügbar.
-          </p>
-        )}
+        {/* Song List */}
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 pb-[calc(5.5rem+env(safe-area-inset-bottom))]">
+          {songs.length === 0 && !error && (
+            <div className="flex flex-col items-center justify-center h-full text-neutral-500">
+              <p className="text-base">Keine Songs in der Queue</p>
+              <p className="text-xs mt-1">Warte auf den Host...</p>
+            </div>
+          )}
 
-        {/* SCROLLABLE SONG LIST */}
-        <div className="space-y-3">
-          {songs.map((s, i) => {
-            const voted = votedTrackIds.has(s.id);
-            const pending = pendingVoteTrackIds.has(s.id);
-            const spotifyLink = buildSpotifyLink(s);
+          <div className="space-y-1.5">
+            {songs.map((s, i) => {
+              const voted = votedTrackIds.has(s.id);
+              const pending = pendingVoteTrackIds.has(s.id);
+              const spotifyLink = buildSpotifyLink(s);
 
-            return (
-              <div
-                key={`${s.id}-${s.addedAt}`}
-                className="flex items-center gap-4 bg-neutral-900 border border-neutral-800 rounded-lg p-3"
-              >
-                {/* Album Art */}
-                {s.albumArt ? (
-                  <img
-                    src={s.albumArt}
-                    alt={s.name}
-                    className="w-12 h-12 rounded-md object-cover"
-                  />
-                ) : (
-                  <div className="w-12 h-12 bg-neutral-700 rounded-md" />
-                )}
-
-                {/* Song Info */}
-                <div className="flex-1 min-w-0">
-                  <p className="text-gray-100 font-medium truncate">
-                    {i + 1}. {s.name}
-                  </p>
-                  <p className="text-gray-400 text-sm truncate">{s.artist}</p>
-                  <p className="text-xs text-neutral-500">Votes: {s.votes}</p>
-                </div>
-
-                {/* Spotify Link */}
-                {spotifyLink ? (
-                  <a
-                    href={spotifyLink}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-2 py-1 rounded-lg text-xs border border-neutral-700 bg-neutral-800 text-neutral-200 hover:bg-neutral-700 transition"
-                    title="In Spotify öffnen"
-                    aria-label="In Spotify öffnen"
-                  >
-                    Spotify
-                  </a>
-                ) : (
-                  <span
-                    className="px-2 py-1 rounded-lg text-xs border border-neutral-700 text-neutral-600"
-                    title="Kein Spotify-Link verfügbar"
-                  >
-                    N/A
-                  </span>
-                )}
-
-                {/* Vote Button */}
-                <button
-                  disabled={pending}
-                  onClick={() => vote(s.id)}
-                  className={`px-3 py-1 rounded-lg text-sm ${
-                    pending
-                      ? "bg-neutral-700 text-neutral-500 cursor-wait"
-                      : voted
-                      ? "bg-yellow-700 hover:bg-yellow-600 text-yellow-100"
-                      : "bg-green-600 hover:bg-green-500 text-white"
+              return (
+                <div
+                  key={`${s.id}-${s.addedAt}`}
+                  className={`flex items-center gap-2.5 rounded-xl px-2.5 py-2 transition-colors ${
+                    voted
+                      ? "bg-green-950/40 border border-green-800/30"
+                      : "bg-neutral-900/70 border border-neutral-800/50"
                   }`}
                 >
-                  {pending ? "…" : voted ? "↩︎" : "👍"}
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+                  {/* Cover + rank badge */}
+                  <div className="relative flex-shrink-0">
+                    {s.albumArt ? (
+                      <img
+                        src={s.albumArt}
+                        alt={s.name}
+                        className="w-11 h-11 rounded-lg object-cover"
+                      />
+                    ) : (
+                      <div className="w-11 h-11 bg-neutral-800 rounded-lg" />
+                    )}
+                    <span className="absolute -top-1 -left-1 bg-neutral-800 border border-neutral-700 text-[10px] font-bold text-neutral-300 w-5 h-5 rounded-full flex items-center justify-center">
+                      {i + 1}
+                    </span>
+                  </div>
 
-      {/* Now Playing Footer */}
-      {currentTrack && (
-        <div className="fixed bottom-0 left-0 right-0 bg-neutral-900 border-t border-neutral-800 px-4 py-3 max-w-md mx-auto">
-          <div className="flex items-center gap-3">
-            {currentTrack.albumArt ? (
-              <img
-                src={currentTrack.albumArt}
-                alt={currentTrack.name}
-                className="w-11 h-11 rounded-md object-cover flex-shrink-0"
-              />
-            ) : (
-              <div className="w-11 h-11 bg-neutral-700 rounded-md flex-shrink-0" />
-            )}
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-white truncate">
-                {currentTrack.name}
-              </p>
-              <p className="text-xs text-neutral-400 truncate">
-                {currentTrack.artist}
-              </p>
-            </div>
-            <span className="text-xs text-green-500 font-medium flex-shrink-0">
-              Spielt
-            </span>
+                  {/* Song Info */}
+                  <div className="flex-1 min-w-0">
+                    <Ticker text={s.name} className="text-sm font-medium text-white leading-tight" />
+                    <Ticker text={s.artist} className="text-xs text-neutral-400 leading-tight mt-0.5" />
+                  </div>
+
+                  {/* Spotify link */}
+                  {spotifyLink && (
+                    <a
+                      href={spotifyLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full bg-neutral-800 active:bg-neutral-700"
+                      aria-label="Auf Spotify anhören"
+                    >
+                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="#1DB954">
+                        <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z" />
+                      </svg>
+                    </a>
+                  )}
+
+                  {/* Vote Button */}
+                  <button
+                    disabled={pending}
+                    onClick={() => vote(s.id)}
+                    className={`flex-shrink-0 flex flex-col items-center justify-center w-11 h-11 rounded-xl font-semibold transition-transform active:scale-90 ${
+                      pending
+                        ? "bg-neutral-800 text-neutral-600"
+                        : voted
+                        ? "bg-green-500 text-white"
+                        : "bg-white/10 text-white active:bg-white/20"
+                    }`}
+                  >
+                    {pending ? (
+                      <span className="block w-4 h-4 border-2 border-neutral-600 border-t-neutral-400 rounded-full animate-spin" />
+                    ) : (
+                      <>
+                        <span className="text-base leading-none">👍</span>
+                        <span className={`text-[10px] font-bold leading-none mt-0.5 ${voted ? "text-white" : "text-neutral-400"}`}>{s.votes}</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              );
+            })}
           </div>
         </div>
-      )}
-    </div>
+
+        {/* Now Playing Footer */}
+        {currentTrack && (
+          <div className="fixed bottom-0 left-0 right-0">
+            <div className="mx-2 mb-[max(0.5rem,env(safe-area-inset-bottom))] bg-neutral-900/95 backdrop-blur-xl border border-neutral-800/60 rounded-2xl px-3 py-2.5 shadow-2xl shadow-black/50">
+              <div className="flex items-center gap-3">
+                {currentTrack.albumArt ? (
+                  <img
+                    src={currentTrack.albumArt}
+                    alt={currentTrack.name}
+                    className="w-10 h-10 rounded-lg object-cover flex-shrink-0"
+                  />
+                ) : (
+                  <div className="w-10 h-10 bg-neutral-800 rounded-lg flex-shrink-0" />
+                )}
+                <div className="flex-1 min-w-0">
+                  <Ticker text={currentTrack.name} className="text-[13px] font-semibold text-white leading-tight" />
+                  <Ticker text={currentTrack.artist} className="text-[11px] text-neutral-400 leading-tight" />
+                </div>
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
+                  </span>
+                  <span className="text-[11px] text-green-500 font-medium">Live</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </>
   );
 }
