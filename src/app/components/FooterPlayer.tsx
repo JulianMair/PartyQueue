@@ -31,17 +31,40 @@ export default function FooterPlayer() {
   const suppressStateUpdatesUntilRef = useRef(0);
   const pendingSeekMsRef = useRef<number | null>(null);
   const recoveringPlayerRef = useRef(false);
+  const cachedTokenRef = useRef<string | null>(null);
 
-  const fetchAccessToken = async (): Promise<string | null> => {
+  const fetchAccessToken = async (forceRefresh = false): Promise<string | null> => {
+    if (!forceRefresh && cachedTokenRef.current) return cachedTokenRef.current;
     try {
       const res = await fetch("/api/auth/token", { cache: "no-store" });
       if (!res.ok) return null;
       const data = await res.json();
-      return typeof data?.access_token === "string" ? data.access_token : null;
+      const token = typeof data?.access_token === "string" ? data.access_token : null;
+      cachedTokenRef.current = token;
+      return token;
     } catch (err) {
       console.error("Token Fetch Error:", err);
       return null;
     }
+  };
+
+  /** Spotify API fetch with automatic 401 retry + token refresh */
+  const spotifyFetch = async (input: string, init?: RequestInit): Promise<Response> => {
+    const token = await fetchAccessToken();
+    if (!token) throw new Error("Missing access token");
+
+    const doRequest = (t: string) => {
+      const headers = new Headers(init?.headers);
+      headers.set("Authorization", `Bearer ${t}`);
+      return fetch(input, { ...init, headers });
+    };
+
+    const res = await doRequest(token);
+    if (res.status !== 401) return res;
+
+    const refreshed = await fetchAccessToken(true);
+    if (!refreshed || refreshed === token) return res;
+    return doRequest(refreshed);
   };
 
   const fetchCurrentTrackFallback = async () => {
@@ -57,14 +80,7 @@ export default function FooterPlayer() {
 
   const fetchCurrentVolume = async () => {
     try {
-      const token = await fetchAccessToken();
-      if (!token) return;
-      const res = await fetch("https://api.spotify.com/v1/me/player", {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-      });
+      const res = await spotifyFetch("https://api.spotify.com/v1/me/player");
       if (!res.ok) return;
       const data = await res.json();
       const value = data?.device?.volume_percent;
@@ -77,37 +93,25 @@ export default function FooterPlayer() {
   };
 
   const setSpotifyVolume = async (volumePercent: number) => {
-    const token = await fetchAccessToken();
-    if (!token) throw new Error("Missing access token");
-
     const query = new URLSearchParams({
       volume_percent: String(volumePercent),
     });
     if (deviceId) query.set("device_id", deviceId);
 
-    await fetch(`https://api.spotify.com/v1/me/player/volume?${query.toString()}`, {
+    await spotifyFetch(`https://api.spotify.com/v1/me/player/volume?${query.toString()}`, {
       method: "PUT",
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
     });
   };
 
   const setSpotifySeek = async (positionMs: number) => {
-    const token = await fetchAccessToken();
-    if (!token) throw new Error("Missing access token");
-
     const safePositionMs = Math.max(0, Math.floor(positionMs));
     const query = new URLSearchParams({
       position_ms: String(safePositionMs),
     });
     if (deviceId) query.set("device_id", deviceId);
 
-    await fetch(`https://api.spotify.com/v1/me/player/seek?${query.toString()}`, {
+    await spotifyFetch(`https://api.spotify.com/v1/me/player/seek?${query.toString()}`, {
       method: "PUT",
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
     });
   };
 
@@ -177,15 +181,9 @@ export default function FooterPlayer() {
           // Gerät aktivieren (wie Spotify-Web)
           setIsConnecting(true);
           try {
-            const token = await fetchAccessToken();
-            if (!token) throw new Error("Missing access token");
-
-            await fetch("https://api.spotify.com/v1/me/player", {
+            await spotifyFetch("https://api.spotify.com/v1/me/player", {
               method: "PUT",
-              headers: {
-                Authorization: `Bearer ${token}`,
-                "Content-Type": "application/json",
-              },
+              headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ device_ids: [device_id], play: false }),
             });
 
@@ -203,9 +201,19 @@ export default function FooterPlayer() {
           }
         });
 
-        newPlayer.addListener("not_ready", ({ device_id }: any) => {
+        newPlayer.addListener("not_ready", async ({ device_id }: any) => {
           console.log("⚠️ Device offline:", device_id);
           setIsReady(false);
+          // Auto-reconnect nach 3 Sekunden
+          await new Promise((r) => setTimeout(r, 3000));
+          if (!isCancelled) {
+            console.log("🔄 Versuche Reconnect nach not_ready...");
+            try {
+              await newPlayer.connect();
+            } catch (err) {
+              console.error("Reconnect nach not_ready fehlgeschlagen:", err);
+            }
+          }
         });
 
         newPlayer.addListener("player_state_changed", (state: any) => {
@@ -249,15 +257,39 @@ export default function FooterPlayer() {
         newPlayer.addListener("initialization_error", ({ message }: any) =>
           console.error("Init error:", message)
         );
-        newPlayer.addListener("authentication_error", ({ message }: any) =>
-          console.error("Auth error:", message)
-        );
+        newPlayer.addListener("authentication_error", async ({ message }: any) => {
+          console.error("Auth error:", message);
+          // Token refreshen und reconnecten
+          cachedTokenRef.current = null;
+          const freshToken = await fetchAccessToken(true);
+          if (freshToken && !isCancelled) {
+            console.log("🔄 Token refreshed nach Auth-Error, reconnecte...");
+            try {
+              await newPlayer.connect();
+            } catch (err) {
+              console.error("Reconnect nach Auth-Error fehlgeschlagen:", err);
+            }
+          }
+        });
         newPlayer.addListener("account_error", ({ message }: any) =>
           console.error("Account error:", message)
         );
-        newPlayer.addListener("playback_error", ({ message }: any) =>
-          console.error("Playback error:", message)
-        );
+        newPlayer.addListener("playback_error", async ({ message }: any) => {
+          console.error("Playback error:", message);
+          // Recovery versuchen
+          if (!isCancelled) {
+            await new Promise((r) => setTimeout(r, 1000));
+            try {
+              const state = await newPlayer.getCurrentState?.();
+              if (!state) {
+                console.log("🔄 Recovery nach Playback-Error...");
+                await recoverPlayerSession();
+              }
+            } catch (err) {
+              console.error("Recovery nach Playback-Error fehlgeschlagen:", err);
+            }
+          }
+        });
 
         const success = await newPlayer.connect();
         if (success) {
@@ -276,8 +308,16 @@ export default function FooterPlayer() {
 
     initPlayer();
 
+    // Proaktiver Token-Refresh alle 45 Minuten (Token laeuft nach 60 Min ab)
+    const tokenRefreshInterval = setInterval(async () => {
+      console.log("🔄 Proaktiver Token-Refresh...");
+      cachedTokenRef.current = null;
+      await fetchAccessToken(true);
+    }, 45 * 60 * 1000);
+
     return () => {
       isCancelled = true;
+      clearInterval(tokenRefreshInterval);
       if (volumeUpdateTimeoutRef.current) clearTimeout(volumeUpdateTimeoutRef.current);
       if (mountedPlayer) mountedPlayer.disconnect();
     };
@@ -328,12 +368,13 @@ export default function FooterPlayer() {
   };
 
   useEffect(() => {
-    if (!player || !deviceId || !track?.isplaying) return;
+    if (!player || !deviceId) return;
 
     const interval = setInterval(async () => {
       try {
         const state = await player.getCurrentState?.();
         if (!state) {
+          console.log("🔄 Healthcheck: kein Player-State, starte Recovery...");
           await recoverPlayerSession();
         }
       } catch (err) {
@@ -342,7 +383,7 @@ export default function FooterPlayer() {
     }, 12000);
 
     return () => clearInterval(interval);
-  }, [player, deviceId, track?.isplaying]);
+  }, [player, deviceId]);
 
   // --- Steuerfunktionen ---
   const handlePlayPause = async () => {
@@ -353,14 +394,9 @@ export default function FooterPlayer() {
     if (!state) {
       // kein aktiver State → via API aktivieren
       try {
-        const token = await fetchAccessToken();
-        if (!token) throw new Error("Missing access token");
-        await fetch("https://api.spotify.com/v1/me/player/play", {
+        await spotifyFetch("https://api.spotify.com/v1/me/player/play", {
           method: "PUT",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ device_id: deviceId }),
         });
       } catch (err) {
@@ -425,15 +461,10 @@ export default function FooterPlayer() {
     recoveringPlayerRef.current = true;
     try {
       await activatePlayer();
-      const token = await fetchAccessToken();
-      if (!token) return;
 
-      await fetch("https://api.spotify.com/v1/me/player", {
+      await spotifyFetch("https://api.spotify.com/v1/me/player", {
         method: "PUT",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ device_ids: [deviceId], play: false }),
       });
 

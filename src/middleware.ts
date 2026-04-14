@@ -10,6 +10,7 @@ const PUBLIC_API_PATHS = new Set([
   "/api/party/mobile",
   "/api/party/vote",
   "/api/party/join",
+  "/api/party/display",
 ]);
 
 function isPublicApiPath(pathname: string): boolean {

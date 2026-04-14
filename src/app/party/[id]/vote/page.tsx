@@ -111,6 +111,7 @@ export default function MobileVotePage({ params }: { params: Promise<{ id: strin
   const { id: partyId } = use(params);
 
   const [songs, setSongs] = useState<PartyTrack[]>([]);
+  const [currentTrack, setCurrentTrack] = useState<PartyTrack | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [votedTrackIds, setVotedTrackIds] = useState<Set<string>>(new Set());
   const [pendingVoteTrackIds, setPendingVoteTrackIds] = useState<Set<string>>(new Set());
@@ -156,6 +157,12 @@ export default function MobileVotePage({ params }: { params: Promise<{ id: strin
         top10SignatureRef.current = nextSignature;
         setSongs(top10);
         setVotedTrackIds(loadVotedSet(partyId, top10));
+      }
+
+      if (data.currentTrack) {
+        setCurrentTrack(data.currentTrack as PartyTrack);
+      } else {
+        setCurrentTrack(null);
       }
 
       if (typeof data.version === "number") {
@@ -300,90 +307,120 @@ export default function MobileVotePage({ params }: { params: Promise<{ id: strin
   /* -------------------------------------------------------------------------- */
 
   return (
-    <div className="min-h-screen bg-black text-white px-4 py-6 max-w-md mx-auto">
-      <h1 className="text-2xl font-bold text-center mb-6">🎉 Party Voting</h1>
+    <div className="min-h-screen bg-black text-white flex flex-col max-w-md mx-auto">
+      <div className="flex-1 px-4 py-6 overflow-y-auto pb-24">
+        <h1 className="text-2xl font-bold text-center mb-6">🎉 Party Voting</h1>
 
-      {error && (
-        <p className="text-center text-red-400 text-sm mb-4">{error}</p>
-      )}
+        {error && (
+          <p className="text-center text-red-400 text-sm mb-4">{error}</p>
+        )}
 
-      {songs.length === 0 && !error && (
-        <p className="text-center text-neutral-400 mt-6">
-          Keine Songs verfügbar.
-        </p>
-      )}
+        {songs.length === 0 && !error && (
+          <p className="text-center text-neutral-400 mt-6">
+            Keine Songs verfügbar.
+          </p>
+        )}
 
-      {/* SCROLLABLE SONG LIST */}
-      <div className="space-y-3 max-h-[75vh] overflow-y-auto pr-1">
-        {songs.map((s, i) => {
-          const voted = votedTrackIds.has(s.id);
-          const pending = pendingVoteTrackIds.has(s.id);
-          const spotifyLink = buildSpotifyLink(s);
+        {/* SCROLLABLE SONG LIST */}
+        <div className="space-y-3">
+          {songs.map((s, i) => {
+            const voted = votedTrackIds.has(s.id);
+            const pending = pendingVoteTrackIds.has(s.id);
+            const spotifyLink = buildSpotifyLink(s);
 
-          return (
-            <div
-              key={`${s.id}-${s.addedAt}`}
-              className="flex items-center gap-4 bg-neutral-900 border border-neutral-800 rounded-lg p-3"
-            >
-              {/* Album Art */}
-              {s.albumArt ? (
-                <img
-                  src={s.albumArt}
-                  alt={s.name}
-                  className="w-12 h-12 rounded-md object-cover"
-                />
-              ) : (
-                <div className="w-12 h-12 bg-neutral-700 rounded-md" />
-              )}
-
-              {/* Song Info */}
-              <div className="flex-1 min-w-0">
-                <p className="text-gray-100 font-medium truncate">
-                  {i + 1}. {s.name}
-                </p>
-                <p className="text-gray-400 text-sm truncate">{s.artist}</p>
-                <p className="text-xs text-neutral-500">Votes: {s.votes}</p>
-              </div>
-
-              {/* Spotify Link */}
-              {spotifyLink ? (
-                <a
-                  href={spotifyLink}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-2 py-1 rounded-lg text-xs border border-neutral-700 bg-neutral-800 text-neutral-200 hover:bg-neutral-700 transition"
-                  title="In Spotify öffnen"
-                  aria-label="In Spotify öffnen"
-                >
-                  Spotify
-                </a>
-              ) : (
-                <span
-                  className="px-2 py-1 rounded-lg text-xs border border-neutral-700 text-neutral-600"
-                  title="Kein Spotify-Link verfügbar"
-                >
-                  N/A
-                </span>
-              )}
-
-              {/* Vote Button */}
-              <button
-                disabled={pending}
-                onClick={() => vote(s.id)}
-                className={`px-3 py-1 rounded-lg text-sm ${
-                  pending
-                    ? "bg-neutral-700 text-neutral-500 cursor-wait"
-                    : voted
-                    ? "bg-yellow-700 hover:bg-yellow-600 text-yellow-100"
-                    : "bg-green-600 hover:bg-green-500 text-white"
-                }`}
+            return (
+              <div
+                key={`${s.id}-${s.addedAt}`}
+                className="flex items-center gap-4 bg-neutral-900 border border-neutral-800 rounded-lg p-3"
               >
-                {pending ? "…" : voted ? "↩︎" : "👍"}
-              </button>
-            </div>
-          );
-        })}
+                {/* Album Art */}
+                {s.albumArt ? (
+                  <img
+                    src={s.albumArt}
+                    alt={s.name}
+                    className="w-12 h-12 rounded-md object-cover"
+                  />
+                ) : (
+                  <div className="w-12 h-12 bg-neutral-700 rounded-md" />
+                )}
+
+                {/* Song Info */}
+                <div className="flex-1 min-w-0">
+                  <p className="text-gray-100 font-medium truncate">
+                    {i + 1}. {s.name}
+                  </p>
+                  <p className="text-gray-400 text-sm truncate">{s.artist}</p>
+                  <p className="text-xs text-neutral-500">Votes: {s.votes}</p>
+                </div>
+
+                {/* Spotify Link */}
+                {spotifyLink ? (
+                  <a
+                    href={spotifyLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-2 py-1 rounded-lg text-xs border border-neutral-700 bg-neutral-800 text-neutral-200 hover:bg-neutral-700 transition"
+                    title="In Spotify öffnen"
+                    aria-label="In Spotify öffnen"
+                  >
+                    Spotify
+                  </a>
+                ) : (
+                  <span
+                    className="px-2 py-1 rounded-lg text-xs border border-neutral-700 text-neutral-600"
+                    title="Kein Spotify-Link verfügbar"
+                  >
+                    N/A
+                  </span>
+                )}
+
+                {/* Vote Button */}
+                <button
+                  disabled={pending}
+                  onClick={() => vote(s.id)}
+                  className={`px-3 py-1 rounded-lg text-sm ${
+                    pending
+                      ? "bg-neutral-700 text-neutral-500 cursor-wait"
+                      : voted
+                      ? "bg-yellow-700 hover:bg-yellow-600 text-yellow-100"
+                      : "bg-green-600 hover:bg-green-500 text-white"
+                  }`}
+                >
+                  {pending ? "…" : voted ? "↩︎" : "👍"}
+                </button>
+              </div>
+            );
+          })}
+        </div>
       </div>
+
+      {/* Now Playing Footer */}
+      {currentTrack && (
+        <div className="fixed bottom-0 left-0 right-0 bg-neutral-900 border-t border-neutral-800 px-4 py-3 max-w-md mx-auto">
+          <div className="flex items-center gap-3">
+            {currentTrack.albumArt ? (
+              <img
+                src={currentTrack.albumArt}
+                alt={currentTrack.name}
+                className="w-11 h-11 rounded-md object-cover flex-shrink-0"
+              />
+            ) : (
+              <div className="w-11 h-11 bg-neutral-700 rounded-md flex-shrink-0" />
+            )}
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-white truncate">
+                {currentTrack.name}
+              </p>
+              <p className="text-xs text-neutral-400 truncate">
+                {currentTrack.artist}
+              </p>
+            </div>
+            <span className="text-xs text-green-500 font-medium flex-shrink-0">
+              Spielt
+            </span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

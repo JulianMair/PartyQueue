@@ -518,10 +518,12 @@ export class PartyManager extends EventEmitter {
 
       try {
         const tuning = this.getTransitionTuning();
-        // Spotify braucht kurz, bis ein neues play() konsistent im /me/player sichtbar ist.
-        // In dieser Zeit darf der Sync nicht sofort "korrigieren", sonst entstehen Sprünge.
-        this.suppressSyncMismatchUntil = Date.now() + tuning.mismatchGraceMs;
+        // Grace-Period VOR play() setzen, damit Sync waehrend des Netzwerk-Calls
+        // nicht faelschlicherweise "korrigiert" und Spruenge verursacht.
+        this.suppressSyncMismatchUntil = Date.now() + tuning.mismatchGraceMs + 2000;
         await this.provider.play(next.uri);
+        // Nach erfolgreichem play() nochmal neu setzen mit genauem Zeitstempel
+        this.suppressSyncMismatchUntil = Date.now() + tuning.mismatchGraceMs;
       } catch (err) {
         console.error("[PartyManager] Konnte nächsten Track nicht starten:", err);
         return false;
@@ -579,32 +581,54 @@ export class PartyManager extends EventEmitter {
           ? playback.device.volume_percent
           : null;
 
-      if (currentVolume === null) {
+      if (currentVolume === null || currentVolume <= 0) {
         await playNextInternal();
         return;
       }
 
-      // Simpler Fade: nur eine Reduktion + Restore.
-      // Weniger API-Calls => weniger Mikro-Ruckler beim Übergang.
-      const fadeDownVolume = Math.max(0, Math.round(currentVolume * 0.35));
-      const fadeDownWorked =
-        currentVolume <= 0 ? true : await safeSetVolume(fadeDownVolume);
-      if (fadeDownWorked) {
-        await wait(Math.min(totalFadeMs, 1200));
+      const tuning = this.getTransitionTuning();
+
+      // --- Phase 1: Gradueller Fade-Down ---
+      // Nutze die Tuning-Parameter fuer mehrstufigen Fade
+      const fadeOutMs = Math.round(totalFadeMs * 0.6);
+      const steps = Math.max(
+        tuning.fadeMinSteps,
+        Math.min(tuning.fadeMaxSteps, Math.round(fadeOutMs / 400))
+      );
+      const stepDelayMs = Math.round(fadeOutMs / steps);
+
+      for (let i = 1; i <= steps; i++) {
+        // Exponentielle Kurve: schnell am Anfang, sanft am Ende
+        const progress = i / steps;
+        const curve = Math.pow(progress, tuning.fadeStepFactor);
+        const targetVolume = Math.max(0, Math.round(currentVolume * (1 - curve)));
+        const ok = await safeSetVolume(targetVolume);
+        if (!ok) break;
+        if (i < steps) await wait(stepDelayMs);
       }
 
+      // --- Phase 2: Naechsten Track starten ---
       const didStartNext = await playNextInternal();
       if (!didStartNext) {
         await safeSetVolume(currentVolume);
         return;
       }
 
-      if (!fadeDownWorked) {
-        await safeSetVolume(currentVolume);
-        return;
+      // --- Phase 3: Gradueller Fade-Up ---
+      const fadeInMs = Math.round(totalFadeMs * 0.4);
+      const fadeInSteps = Math.max(2, Math.min(tuning.fadeMaxSteps, Math.round(fadeInMs / 300)));
+      const fadeInStepDelay = Math.round(fadeInMs / fadeInSteps);
+
+      for (let i = 1; i <= fadeInSteps; i++) {
+        const progress = i / fadeInSteps;
+        // Sanfte Kurve: langsam am Anfang, schneller am Ende
+        const curve = Math.pow(progress, 1 / tuning.fadeStepFactor);
+        const targetVolume = Math.min(currentVolume, Math.round(currentVolume * curve));
+        await safeSetVolume(targetVolume);
+        if (i < fadeInSteps) await wait(fadeInStepDelay);
       }
 
-      await wait(Math.min(250, Math.max(80, Math.floor(totalFadeMs / 4))));
+      // Sicherheitshalber exakten Original-Wert setzen
       await safeSetVolume(currentVolume);
     } finally {
       this.transitionInProgress = false;
@@ -645,14 +669,17 @@ export class PartyManager extends EventEmitter {
       const spotifyItem = playback.item ?? null;
       const isPlaying = playback.is_playing ?? false;
 
-      // FALL 1: Spotify spielt GAR NICHT → wir starten wieder
-      /**
-        if (!isPlaying || !spotifyItem) {
-          console.log("[PartyManager] Kein Song läuft → starte nächsten");
+      // FALL 1: Kein Track mehr in Spotify (Song zu Ende, nicht nur pausiert)
+      // Wichtig: !isPlaying allein reicht NICHT – das bedeutet nur "pausiert".
+      // Nur wenn Spotify keinen Track mehr hat, starten wir den naechsten.
+      if (!spotifyItem && this.state.queue.length > 0) {
+        const now = Date.now();
+        if (now > this.autoAdvanceCooldownUntil && !this.transitionInProgress) {
+          console.log("[PartyManager] Kein Track in Spotify, Queue nicht leer → starte nächsten");
           await this.playNextTrack();
-          return;
         }
-      */
+        return;
+      }
 
       if (!spotifyItem) return;
 
@@ -663,7 +690,8 @@ export class PartyManager extends EventEmitter {
       // FALL 2: Spotify hat auf einen neuen Song gewechselt
       if (spotifyUri !== currentUri) {
         console.log(`[PartyManager] Trackwechsel erkannt: ${spotifyItem.name}`);
-        if (Date.now() < this.suppressSyncMismatchUntil) {
+        // Waehrend eines Transitions (Fade laeuft) ignorieren wir externe Wechsel komplett
+        if (this.transitionInProgress || Date.now() < this.suppressSyncMismatchUntil) {
           return;
         }
         this.lastAdvanceSourceTrackId = null;
@@ -710,9 +738,16 @@ export class PartyManager extends EventEmitter {
         }
       }
 
-      // FALL 3: Ist der Song bald vorbei? (letzte 5 Sekunden)
+      // Echtzeit-Fortschritt auf currentTrack aktualisieren (fuer Display-Endpunkt)
       const progress = playback.progress_ms ?? 0;
       const duration = spotifyItem.duration_ms ?? 0;
+      if (this.state.currentTrack) {
+        this.state.currentTrack.progressMs = progress;
+        this.state.currentTrack.isplaying = isPlaying;
+        this.state.currentTrack.durationMs = duration;
+      }
+
+      // FALL 3: Ist der Song bald vorbei?
       const remaining = duration - progress;
       if (!isPlaying) return;
 
@@ -735,10 +770,13 @@ export class PartyManager extends EventEmitter {
       this.lastPlaybackProgressMs = progress;
       this.lastPlaybackObservedAt = now;
 
+      // Transition-Window = volle Fade-Dauer + Buffer + Netzwerk-Overhead
+      // Der Fade nutzt 60% fuer Fade-Out + play() + 40% fuer Fade-In
+      // Wir muessen frueh genug starten damit der Fade-Out vor Song-Ende abgeschlossen ist
+      const fadeMs = Math.round(this.fadeDurationSeconds * 1000);
       const transitionWindowMs = Math.max(
-        1500,
-        Math.round(this.fadeDurationSeconds * 1000) +
-          this.getTransitionTuning().transitionBufferMs
+        2000,
+        Math.round(fadeMs * 0.6) + this.getTransitionTuning().transitionBufferMs + 1500
       );
 
       if (remaining < transitionWindowMs) {

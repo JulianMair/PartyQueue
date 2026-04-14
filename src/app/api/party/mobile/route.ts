@@ -53,5 +53,6 @@ export async function GET(req: Request) {
     partyId: state.id,
     version: state.version,
     top10: enrichedTop10,
+    currentTrack: state.currentTrack ?? null,
   });
 }
