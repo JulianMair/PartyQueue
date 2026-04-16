@@ -3,12 +3,27 @@ import EventEmitter from "events";
 import { MusicProvider, Track, PartyTrack } from "../providers/types";
 import type { TransitionProfile } from "./settings";
 
+export interface Suggestion {
+  track: PartyTrack;
+  suggestedBy: string; // clientId
+  votes: Set<string>; // clientIds that voted for this suggestion
+  createdAt: number;
+}
+
+export interface SuggestionJSON {
+  track: PartyTrack;
+  suggestedBy: string;
+  votes: string[];
+  createdAt: number;
+}
+
 export interface PartyState {
   id: string;
   queue: PartyTrack[];
   currentTrack?: PartyTrack;
   isActive: boolean;
   version: number;
+  suggestions?: SuggestionJSON[];
 }
 
 export type VoteResultStatus =
@@ -29,7 +44,9 @@ export class PartyManager extends EventEmitter {
   private provider: MusicProvider;
   private syncInterval: NodeJS.Timeout | null = null;
   private voted: Map<string, Set<string>> = new Map();
+  private suggestions: Map<string, Suggestion> = new Map(); // trackId -> Suggestion
   private playedTrackIds: Set<string> = new Set();
+  private suggestionThreshold = 3;
   private fadeDurationSeconds = 0;
   private transitionProfile: TransitionProfile = "balanced";
   private transitionInProgress = false;
@@ -71,10 +88,24 @@ export class PartyManager extends EventEmitter {
     if (initialState?.currentTrack?.id) {
       this.playedTrackIds.add(initialState.currentTrack.id);
     }
+    // Restore suggestions from persisted state
+    if (initialState?.suggestions) {
+      for (const s of initialState.suggestions) {
+        this.suggestions.set(s.track.id, {
+          track: s.track,
+          suggestedBy: s.suggestedBy,
+          votes: new Set(s.votes),
+          createdAt: s.createdAt,
+        });
+      }
+    }
   }
 
-  getState() {
-    return this.state;
+  getState(): PartyState {
+    return {
+      ...this.state,
+      suggestions: this.getSuggestionsJSON(),
+    };
   }
 
   getVotedByClient() {
@@ -487,6 +518,138 @@ export class PartyManager extends EventEmitter {
   }
 
 
+  /* ── Suggestion System ──────────────────────────────────────────────────── */
+
+  setSuggestionThreshold(threshold: number) {
+    this.suggestionThreshold = Math.max(1, Math.min(20, Math.round(threshold)));
+  }
+
+  getSuggestionThreshold() {
+    return this.suggestionThreshold;
+  }
+
+  private getSuggestionsJSON(): SuggestionJSON[] {
+    return Array.from(this.suggestions.values()).map((s) => ({
+      track: s.track,
+      suggestedBy: s.suggestedBy,
+      votes: Array.from(s.votes),
+      createdAt: s.createdAt,
+    }));
+  }
+
+  getSuggestions(): SuggestionJSON[] {
+    return this.getSuggestionsJSON();
+  }
+
+  /** Returns trackId of active suggestion by this client, or null */
+  getClientSuggestion(clientId: string): string | null {
+    for (const [trackId, s] of this.suggestions) {
+      if (s.suggestedBy === clientId) return trackId;
+    }
+    return null;
+  }
+
+  suggest(track: Track, clientId: string): { status: "ok" | "already_suggested" | "duplicate" | "in_queue"; suggestion?: SuggestionJSON } {
+    // Already in queue?
+    if (this.state.queue.some((t) => t.id === track.id)) {
+      return { status: "in_queue" };
+    }
+    // Currently playing?
+    if (this.state.currentTrack?.id === track.id) {
+      return { status: "in_queue" };
+    }
+    // Already suggested by someone?
+    if (this.suggestions.has(track.id)) {
+      return { status: "duplicate" };
+    }
+    // Client already has an active suggestion?
+    if (this.getClientSuggestion(clientId)) {
+      return { status: "already_suggested" };
+    }
+
+    const suggestion: Suggestion = {
+      track: { ...track, votes: 1, addedAt: Date.now() },
+      suggestedBy: clientId,
+      votes: new Set([clientId]),
+      createdAt: Date.now(),
+    };
+    this.suggestions.set(track.id, suggestion);
+
+    this.bumpVersion();
+    this.emit("stateChanged", this.state);
+
+    const json: SuggestionJSON = {
+      track: suggestion.track,
+      suggestedBy: suggestion.suggestedBy,
+      votes: Array.from(suggestion.votes),
+      createdAt: suggestion.createdAt,
+    };
+    return { status: "ok", suggestion: json };
+  }
+
+  voteSuggestion(trackId: string, clientId: string): { status: "ok" | "already_voted" | "not_found" | "promoted"; promoted?: boolean } {
+    const suggestion = this.suggestions.get(trackId);
+    if (!suggestion) return { status: "not_found" };
+
+    if (suggestion.votes.has(clientId)) {
+      return { status: "already_voted" };
+    }
+
+    suggestion.votes.add(clientId);
+    suggestion.track.votes = suggestion.votes.size;
+
+    // Check if threshold reached → promote to queue
+    if (suggestion.votes.size >= this.suggestionThreshold) {
+      this.suggestions.delete(trackId);
+      const partyTrack: PartyTrack = {
+        ...suggestion.track,
+        votes: suggestion.votes.size,
+        addedAt: Date.now(),
+      };
+      this.state.queue.push(partyTrack);
+      this.sortQueue();
+
+      // Transfer votes to the voted map so they count as real votes
+      for (const voter of suggestion.votes) {
+        if (!this.voted.has(voter)) this.voted.set(voter, new Set());
+        this.voted.get(voter)!.add(trackId);
+      }
+
+      this.bumpVersion();
+      this.emit("queueUpdated", this.state.queue);
+      this.emit("stateChanged", this.state);
+      return { status: "promoted", promoted: true };
+    }
+
+    this.bumpVersion();
+    this.emit("stateChanged", this.state);
+    return { status: "ok" };
+  }
+
+  unvoteSuggestion(trackId: string, clientId: string): { status: "ok" | "not_found" | "not_voted" | "removed" } {
+    const suggestion = this.suggestions.get(trackId);
+    if (!suggestion) return { status: "not_found" };
+
+    if (!suggestion.votes.has(clientId)) {
+      return { status: "not_voted" };
+    }
+
+    suggestion.votes.delete(clientId);
+    suggestion.track.votes = suggestion.votes.size;
+
+    // If suggester unvotes their own suggestion and nobody else voted, remove it
+    if (suggestion.suggestedBy === clientId && suggestion.votes.size === 0) {
+      this.suggestions.delete(trackId);
+      this.bumpVersion();
+      this.emit("stateChanged", this.state);
+      return { status: "removed" };
+    }
+
+    this.bumpVersion();
+    this.emit("stateChanged", this.state);
+    return { status: "ok" };
+  }
+
   /** Intern: sortiere Queue nach Votes + Zeit */
   private sortQueue() {
     this.state.queue.sort(
@@ -507,7 +670,7 @@ export class PartyManager extends EventEmitter {
     if (this.state.queue.length === 0 || this.transitionInProgress) return;
     this.transitionInProgress = true;
     // Egal ob manuell oder automatisch ausgelöst: verhindere direkte Doppel-Advances.
-    this.autoAdvanceCooldownUntil = Date.now() + 7000;
+    this.autoAdvanceCooldownUntil = Date.now() + 4000;
     this.lastAdvanceSourceTrackId = this.state.currentTrack?.id ?? null;
 
     // WICHTIG: Track SOFORT aus der Queue nehmen, BEVOR der Fade startet.
@@ -540,6 +703,9 @@ export class PartyManager extends EventEmitter {
       // Bei Fehler: Track wieder vorne einfuegen
       this.state.queue.unshift(next);
       this.pendingTrimHandledTrackId = null;
+      // Cooldown zurücksetzen damit Retry sofort möglich ist
+      this.autoAdvanceCooldownUntil = 0;
+      this.suppressSyncMismatchUntil = 0;
       this.bumpVersion();
       this.emit("queueUpdated", this.state.queue);
       this.emit("stateChanged", this.state);
@@ -779,23 +945,53 @@ export class PartyManager extends EventEmitter {
         this.state.currentTrack.durationMs = duration;
       }
 
-      // FALL 3: Ist der Song bald vorbei?
       const remaining = duration - progress;
+
+      // FALL 1c: Spotify hat denselben Song nochmal gestartet (Autoplay/Repeat).
+      // Erkennung: gleiche URI, aber Progress springt von >80% auf <10% des Songs.
+      const observedTrackId = spotifyItem.id ?? spotifyUri;
+      if (
+        spotifyUri === currentUri &&
+        this.lastPlaybackTrackId === observedTrackId &&
+        this.lastPlaybackObservedAt > 0 &&
+        duration > 0 &&
+        this.state.queue.length > 0
+      ) {
+        const wasNearEnd = this.lastPlaybackProgressMs > duration * 0.8;
+        const nowNearStart = progress < duration * 0.1;
+        if (wasNearEnd && nowNearStart && !this.transitionInProgress) {
+          console.log("[PartyManager] Song-Restart erkannt (Autoplay/Repeat) → starte nächsten aus Queue");
+          this.autoAdvanceCooldownUntil = 0;
+          await this.playNextTrack();
+          return;
+        }
+      }
+
+      // FALL 1b: Song ist natürlich zu Ende (pausiert am Ende, Item noch vorhanden)
+      // Spotify setzt is_playing=false und behält den Track — FALL 1 greift hier nicht.
+      if (!isPlaying && duration > 0 && remaining < 3000 && this.state.queue.length > 0) {
+        if (now > this.autoAdvanceCooldownUntil && !this.transitionInProgress) {
+          console.log("[PartyManager] Song zu Ende (pausiert am Ende) → starte nächsten");
+          await this.playNextTrack();
+        }
+        return;
+      }
+
+      // FALL 3: Ist der Song bald vorbei?
       if (!isPlaying) return;
 
-      // Seek-/Sprung-Erkennung:
-      // Wenn sich Progress innerhalb kurzer Zeit ungewöhnlich stark ändert,
-      // unterdrücken wir Auto-Advance kurz, damit Vorspulen nicht direkt skippt.
-      const observedTrackId = spotifyItem.id ?? spotifyUri;
+      // Seek-/Sprung-Erkennung: Manuelles Vorspulen → kurz Auto-Advance unterdrücken.
+      // Aber NUR wenn der Sprung vorwärts oder innerhalb des Songs ist (kein Restart).
       if (
         this.lastPlaybackTrackId === observedTrackId &&
         this.lastPlaybackObservedAt > 0
       ) {
         const deltaProgress = Math.abs(progress - this.lastPlaybackProgressMs);
         const deltaTimeMs = now - this.lastPlaybackObservedAt;
-        const isLikelySeekJump = deltaProgress > 6000 && deltaTimeMs < 3000;
+        const isForwardSeek = progress > this.lastPlaybackProgressMs;
+        const isLikelySeekJump = deltaProgress > 6000 && deltaTimeMs < 3000 && isForwardSeek;
         if (isLikelySeekJump) {
-          this.suppressAutoAdvanceUntil = now + 6000;
+          this.suppressAutoAdvanceUntil = now + 3000;
         }
       }
       this.lastPlaybackTrackId = observedTrackId;
@@ -818,7 +1014,7 @@ export class PartyManager extends EventEmitter {
         if (now < this.suppressAutoAdvanceUntil) return;
         const isDuplicateTrackTrigger =
           Boolean(spotifyItem.id) && spotifyItem.id === this.lastAdvanceSourceTrackId;
-        const isTooSoon = now - this.lastAdvanceTriggerAt < 1800;
+        const isTooSoon = now - this.lastAdvanceTriggerAt < 1200;
 
         if (!this.transitionInProgress && !isDuplicateTrackTrigger && !isTooSoon) {
           this.lastAdvanceSourceTrackId = spotifyItem.id ?? null;

@@ -50,6 +50,7 @@ class PartyRegistry {
       this.parties.set(persisted.partyId, manager);
       this.partyMeta.set(persisted.partyId, {
         partyId: persisted.partyId,
+        ownerId: persisted.ownerId ?? "",
         name: persisted.name,
         providerName: persisted.providerName,
         isActive: persisted.isActive,
@@ -57,12 +58,10 @@ class PartyRegistry {
         updatedAt: persisted.updatedAt,
         settings: sanitizePartySettings(persisted.settings ?? DEFAULT_PARTY_SETTINGS),
       });
-      manager.setFadeDurationSeconds(
-        sanitizePartySettings(persisted.settings ?? DEFAULT_PARTY_SETTINGS).fadeSeconds
-      );
-      manager.setTransitionProfile(
-        sanitizePartySettings(persisted.settings ?? DEFAULT_PARTY_SETTINGS).transitionProfile
-      );
+      const s = sanitizePartySettings(persisted.settings ?? DEFAULT_PARTY_SETTINGS);
+      manager.setFadeDurationSeconds(s.fadeSeconds);
+      manager.setTransitionProfile(s.transitionProfile);
+      manager.setSuggestionThreshold(s.suggestionThreshold);
 
       this.attachPersistence(manager, persisted.partyId);
 
@@ -393,6 +392,7 @@ class PartyRegistry {
     providerName?: string;
     name?: string;
     settings?: PartySettings;
+    ownerId?: string;
   }) {
     await this.ensureInitialized();
 
@@ -400,6 +400,7 @@ class PartyRegistry {
     const providerName = input?.providerName || this.defaultProvider;
     const name = input?.name?.trim() || `Party ${new Date().toLocaleString("de-DE")}`;
     const settings = sanitizePartySettings(input?.settings ?? DEFAULT_PARTY_SETTINGS);
+    const ownerId = input?.ownerId ?? "";
 
     const provider = getProvider(providerName);
     const manager = new PartyManager(partyId, provider);
@@ -408,6 +409,7 @@ class PartyRegistry {
     const now = new Date().toISOString();
     const metadata: PartyMetadata = {
       partyId,
+      ownerId,
       name,
       providerName,
       isActive: false,
@@ -418,10 +420,12 @@ class PartyRegistry {
     this.partyMeta.set(partyId, metadata);
     manager.setFadeDurationSeconds(settings.fadeSeconds);
     manager.setTransitionProfile(settings.transitionProfile);
+    manager.setSuggestionThreshold(settings.suggestionThreshold);
     this.attachPersistence(manager, partyId);
 
     await this.store.createParty({
       partyId,
+      ownerId,
       name,
       providerName,
       settings,
@@ -431,7 +435,7 @@ class PartyRegistry {
       },
     });
 
-    await this.activateParty(partyId);
+    await this.activateParty(partyId, ownerId);
     await this.seedQueueFromSettings(partyId, settings);
     await this.persistParty(partyId);
 
@@ -442,9 +446,9 @@ class PartyRegistry {
     };
   }
 
-  async listParties() {
+  async listParties(ownerId?: string) {
     await this.ensureInitialized();
-    const latest = await this.store.listParties();
+    const latest = await this.store.listParties(ownerId);
     for (const meta of latest) {
       this.partyMeta.set(meta.partyId, meta);
     }
@@ -471,6 +475,7 @@ class PartyRegistry {
     this.parties.set(partyId, manager);
     this.partyMeta.set(partyId, {
       partyId: persisted.partyId,
+      ownerId: persisted.ownerId ?? "",
       name: persisted.name,
       providerName: persisted.providerName,
       isActive: persisted.isActive,
@@ -478,12 +483,10 @@ class PartyRegistry {
       updatedAt: persisted.updatedAt,
       settings: sanitizePartySettings(persisted.settings ?? DEFAULT_PARTY_SETTINGS),
     });
-    manager.setFadeDurationSeconds(
-      sanitizePartySettings(persisted.settings ?? DEFAULT_PARTY_SETTINGS).fadeSeconds
-    );
-    manager.setTransitionProfile(
-      sanitizePartySettings(persisted.settings ?? DEFAULT_PARTY_SETTINGS).transitionProfile
-    );
+    const ps = sanitizePartySettings(persisted.settings ?? DEFAULT_PARTY_SETTINGS);
+    manager.setFadeDurationSeconds(ps.fadeSeconds);
+    manager.setTransitionProfile(ps.transitionProfile);
+    manager.setSuggestionThreshold(ps.suggestionThreshold);
     this.attachPersistence(manager, partyId);
 
     if (persisted.snapshot.state?.isActive) {
@@ -503,6 +506,7 @@ class PartyRegistry {
 
     const metadata: PartyMetadata = {
       partyId: persisted.partyId,
+      ownerId: persisted.ownerId ?? "",
       name: persisted.name,
       providerName: persisted.providerName,
       isActive: persisted.isActive,
@@ -561,6 +565,7 @@ class PartyRegistry {
     });
     manager.setFadeDurationSeconds(settings.fadeSeconds);
     manager.setTransitionProfile(settings.transitionProfile);
+    manager.setSuggestionThreshold(settings.suggestionThreshold);
 
     const addedCount = await this.seedQueueFromSettings(partyId, settings);
     await this.persistParty(partyId);
@@ -571,7 +576,7 @@ class PartyRegistry {
     };
   }
 
-  async activateParty(partyId: string) {
+  async activateParty(partyId: string, ownerId?: string) {
     await this.ensureInitialized();
 
     const target = await this.getParty(partyId);
@@ -579,12 +584,17 @@ class PartyRegistry {
       throw new Error(`Party mit ID ${partyId} nicht gefunden`);
     }
 
+    // Determine owner from metadata if not provided
+    const resolvedOwnerId = ownerId ?? this.partyMeta.get(partyId)?.ownerId;
+
+    // Only deactivate other parties of the same owner
     for (const [id, party] of this.parties.entries()) {
       if (id === partyId) continue;
+      const existingMeta = this.partyMeta.get(id);
+      if (resolvedOwnerId && existingMeta?.ownerId !== resolvedOwnerId) continue;
       if (party.getState().isActive) {
         party.stopParty();
       }
-      const existingMeta = this.partyMeta.get(id);
       if (existingMeta) {
         this.partyMeta.set(id, {
           ...existingMeta,
@@ -607,29 +617,32 @@ class PartyRegistry {
       });
     }
 
-    await this.store.setActiveParty(partyId);
+    await this.store.setActiveParty(partyId, resolvedOwnerId);
     await this.persistParty(partyId);
 
     return target;
   }
 
-  async getActiveParty() {
+  async getActiveParty(ownerId?: string) {
     await this.ensureInitialized();
 
     for (const [partyId, manager] of this.parties.entries()) {
-      if (manager.getState().isActive) {
-        return { partyId, manager };
+      if (!manager.getState().isActive) continue;
+      if (ownerId) {
+        const meta = this.partyMeta.get(partyId);
+        if (meta?.ownerId !== ownerId) continue;
       }
+      return { partyId, manager };
     }
 
-    const persistedActive = await this.store.getActiveParty();
+    const persistedActive = await this.store.getActiveParty(ownerId);
     if (!persistedActive) return null;
 
     const manager = await this.getParty(persistedActive.partyId);
     if (!manager) return null;
 
     if (!manager.getState().isActive) {
-      await this.activateParty(persistedActive.partyId);
+      await this.activateParty(persistedActive.partyId, ownerId);
     }
 
     return { partyId: persistedActive.partyId, manager };

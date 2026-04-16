@@ -10,6 +10,7 @@ export interface PartyPersistenceSnapshot {
 
 export interface PartyMetadata {
   partyId: string;
+  ownerId: string;
   name: string;
   providerName: string;
   isActive: boolean;
@@ -20,6 +21,7 @@ export interface PartyMetadata {
 
 interface PartyDocument {
   partyId: string;
+  ownerId?: string;
   name: string;
   providerName: string;
   isActive: boolean;
@@ -43,6 +45,7 @@ export class PartyStore {
 
   async createParty(input: {
     partyId: string;
+    ownerId: string;
     name: string;
     providerName: string;
     settings: PartySettings;
@@ -53,6 +56,7 @@ export class PartyStore {
 
     await collection.insertOne({
       partyId: input.partyId,
+      ownerId: input.ownerId,
       name: input.name,
       providerName: input.providerName,
       isActive: input.snapshot.state.isActive,
@@ -93,12 +97,16 @@ export class PartyStore {
     );
   }
 
-  async setActiveParty(partyId: string) {
+  async setActiveParty(partyId: string, ownerId?: string) {
     const collection = await this.collection();
     const now = new Date();
 
+    // Only deactivate other parties of the same owner
+    const deactivateFilter: Record<string, unknown> = { partyId: { $ne: partyId }, isActive: true };
+    if (ownerId) deactivateFilter.ownerId = ownerId;
+
     await collection.updateMany(
-      { partyId: { $ne: partyId }, isActive: true },
+      deactivateFilter,
       {
         $set: {
           isActive: false,
@@ -120,12 +128,15 @@ export class PartyStore {
     );
   }
 
-  async listParties(): Promise<PartyMetadata[]> {
+  async listParties(ownerId?: string): Promise<PartyMetadata[]> {
     const collection = await this.collection();
-    const docs = await collection.find({}, { projection: { _id: 0 } }).sort({ updatedAt: -1 }).toArray();
+    const filter: Record<string, unknown> = {};
+    if (ownerId) filter.ownerId = ownerId;
+    const docs = await collection.find(filter, { projection: { _id: 0 } }).sort({ updatedAt: -1 }).toArray();
 
     return docs.map((doc: PartyDocument) => ({
       partyId: doc.partyId,
+      ownerId: doc.ownerId ?? "",
       name: doc.name,
       providerName: doc.providerName,
       isActive: doc.isActive,
@@ -142,6 +153,7 @@ export class PartyStore {
 
     return {
       partyId: doc.partyId,
+      ownerId: doc.ownerId ?? "",
       name: doc.name,
       providerName: doc.providerName,
       isActive: doc.isActive,
@@ -155,13 +167,16 @@ export class PartyStore {
     };
   }
 
-  async getActiveParty(): Promise<(PartyMetadata & { snapshot: PartyPersistenceSnapshot }) | null> {
+  async getActiveParty(ownerId?: string): Promise<(PartyMetadata & { snapshot: PartyPersistenceSnapshot }) | null> {
     const collection = await this.collection();
-    const doc = await collection.findOne({ isActive: true }, { sort: { updatedAt: -1 } });
+    const filter: Record<string, unknown> = { isActive: true };
+    if (ownerId) filter.ownerId = ownerId;
+    const doc = await collection.findOne(filter, { sort: { updatedAt: -1 } });
     if (!doc) return null;
 
     return {
       partyId: doc.partyId,
+      ownerId: doc.ownerId ?? "",
       name: doc.name,
       providerName: doc.providerName,
       isActive: doc.isActive,
@@ -186,6 +201,7 @@ export class PartyStore {
 
     return docs.map((doc: PartyDocument) => ({
       partyId: doc.partyId,
+      ownerId: doc.ownerId ?? "",
       name: doc.name,
       providerName: doc.providerName,
       isActive: doc.isActive,

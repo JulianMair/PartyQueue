@@ -1,12 +1,17 @@
 import { NextResponse } from "next/server";
 import { partyRegistry } from "@/app/lib/party/PartyRegistry";
 import type { Track } from "@/app/lib/providers/types";
-import { requireAuthenticatedRequest } from "@/app/lib/auth/require-auth";
+import { requireAuthenticatedRequest, getCurrentSpotifyUserId } from "@/app/lib/auth/require-auth";
 
 export async function POST(req: Request) {
   try {
     const unauthorized = await requireAuthenticatedRequest();
     if (unauthorized) return unauthorized;
+
+    const ownerId = await getCurrentSpotifyUserId();
+    if (!ownerId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
     const body = await req.json();
     const { partyId, track, insertIndex } = body as {
@@ -20,6 +25,11 @@ export async function POST(req: Request) {
         { error: "partyId und track sind erforderlich" },
         { status: 400 }
       );
+    }
+
+    const meta = await partyRegistry.getPartyMetadata(partyId);
+    if (meta && meta.ownerId && meta.ownerId !== ownerId) {
+      return NextResponse.json({ error: "Keine Berechtigung für diese Party" }, { status: 403 });
     }
 
     const party = await partyRegistry.getParty(partyId);

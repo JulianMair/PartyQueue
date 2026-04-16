@@ -26,6 +26,8 @@ export interface PartySettings {
   allowExplicit: boolean;
   fadeSeconds: number;
   transitionProfile: TransitionProfile;
+  suggestionsEnabled: boolean;
+  suggestionThreshold: number;
 }
 
 export const DEFAULT_PARTY_SETTINGS: PartySettings = {
@@ -35,6 +37,8 @@ export const DEFAULT_PARTY_SETTINGS: PartySettings = {
   allowExplicit: false,
   fadeSeconds: 0,
   transitionProfile: "balanced",
+  suggestionsEnabled: true,
+  suggestionThreshold: 3,
 };
 
 export function sanitizePartySettings(input: unknown): PartySettings {
@@ -62,5 +66,10 @@ export function sanitizePartySettings(input: unknown): PartySettings {
     )
       ? (source.transitionProfile as TransitionProfile)
       : "balanced",
+    suggestionsEnabled: source.suggestionsEnabled !== false,
+    suggestionThreshold: Math.min(
+      20,
+      Math.max(1, Number.isFinite(source.suggestionThreshold) ? Number(source.suggestionThreshold) : 3)
+    ),
   };
 }

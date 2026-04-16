@@ -223,6 +223,50 @@ export default function PartyManagementSheet({
               />
             </label>
 
+            <div className="border-t border-neutral-800 pt-3 mt-1">
+              <p className="text-sm font-medium text-gray-100 mb-2">Song-Vorschläge</p>
+
+              <label className="flex items-center justify-between gap-3">
+                <span className="text-sm text-gray-300">Vorschläge erlauben</span>
+                <input
+                  type="checkbox"
+                  checked={pendingSettings.suggestionsEnabled}
+                  onChange={(e) =>
+                    onPendingSettingsChange({
+                      ...pendingSettings,
+                      suggestionsEnabled: e.target.checked,
+                    })
+                  }
+                  className="h-4 w-4 accent-amber-500"
+                />
+              </label>
+
+              {pendingSettings.suggestionsEnabled && (
+                <label className="block mt-2">
+                  <span className="text-sm text-gray-300">Votes zum Hinzufügen</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={20}
+                    value={pendingSettings.suggestionThreshold}
+                    onChange={(e) =>
+                      onPendingSettingsChange({
+                        ...pendingSettings,
+                        suggestionThreshold: Math.min(
+                          20,
+                          Math.max(1, Number.parseInt(e.target.value || "3", 10) || 3)
+                        ),
+                      })
+                    }
+                    className="mt-1 w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-gray-100"
+                  />
+                  <span className="text-[11px] text-gray-500 mt-0.5 block">
+                    Anzahl Votes, bis ein Vorschlag in die Queue aufgenommen wird
+                  </span>
+                </label>
+              )}
+            </div>
+
             <button
               onClick={() => void onSaveSettings()}
               disabled={isBusy || !activePartyId}

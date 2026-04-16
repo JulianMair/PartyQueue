@@ -49,10 +49,16 @@ export async function GET(req: Request) {
     }
   }
 
+  const meta = await partyRegistry.getPartyMetadata(partyId);
+  const suggestionsEnabled = meta?.settings?.suggestionsEnabled !== false;
+
   return NextResponse.json({
     partyId: state.id,
     version: state.version,
     top10: enrichedTop10,
     currentTrack: state.currentTrack ?? null,
+    suggestions: suggestionsEnabled ? (state.suggestions ?? []) : [],
+    suggestionsEnabled,
+    suggestionThreshold: party.getSuggestionThreshold(),
   });
 }

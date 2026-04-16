@@ -1,12 +1,17 @@
 import { NextResponse } from "next/server";
 import { partyRegistry } from "@/app/lib/party/PartyRegistry";
-import { requireAuthenticatedRequest } from "@/app/lib/auth/require-auth";
+import { requireAuthenticatedRequest, getCurrentSpotifyUserId } from "@/app/lib/auth/require-auth";
 
 export async function GET() {
   const unauthorized = await requireAuthenticatedRequest();
   if (unauthorized) return unauthorized;
 
-  const active = await partyRegistry.getActiveParty();
+  const ownerId = await getCurrentSpotifyUserId();
+  if (!ownerId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const active = await partyRegistry.getActiveParty(ownerId);
 
   if (!active) {
     return NextResponse.json({ partyId: null, isActive: false, queue: [] });

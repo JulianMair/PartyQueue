@@ -22,11 +22,16 @@ export async function getCurrentTrack(): Promise<Track | null> {
 }
 
 export async function play(uri?: string): Promise<void> {
-  await spotifyApiFetch("https://api.spotify.com/v1/me/player/play", {
+  const res = await spotifyApiFetch("https://api.spotify.com/v1/me/player/play", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: uri ? JSON.stringify({ uris: [uri] }) : undefined,
   });
+  // 204 = success, 200 = success with body, alles andere = Fehler
+  if (!res.ok && res.status !== 204) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Spotify play failed (${res.status}): ${text}`);
+  }
 }
 
 export async function pause(): Promise<void> {

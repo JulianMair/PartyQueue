@@ -2,12 +2,17 @@
 import { NextResponse } from "next/server";
 import { partyRegistry } from "@/app/lib/party/PartyRegistry";
 import { sanitizePartySettings } from "@/app/lib/party/settings";
-import { requireAuthenticatedRequest } from "@/app/lib/auth/require-auth";
+import { requireAuthenticatedRequest, getCurrentSpotifyUserId } from "@/app/lib/auth/require-auth";
 
 export async function POST(req: Request) {
   try {
     const unauthorized = await requireAuthenticatedRequest();
     if (unauthorized) return unauthorized;
+
+    const ownerId = await getCurrentSpotifyUserId();
+    if (!ownerId) {
+      return NextResponse.json({ error: "Spotify-User konnte nicht ermittelt werden" }, { status: 401 });
+    }
 
     const body = await req.json().catch(() => ({}));
     const name = typeof body?.name === "string" ? body.name : undefined;
@@ -16,6 +21,7 @@ export async function POST(req: Request) {
       providerName: "spotify",
       name,
       settings,
+      ownerId,
     });
 
     return NextResponse.json({ partyId, party: metadata });

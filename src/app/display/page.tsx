@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import QRCode from "react-qr-code";
 import type { PartyTrack } from "@/app/lib/providers/types";
 
@@ -16,7 +17,21 @@ interface DisplayData {
 }
 
 export default function AutoDisplayPage() {
-  const [partyId, setPartyId] = useState<string | null>(null);
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-neutral-950 text-white flex items-center justify-center">
+        <p className="text-neutral-500 text-xl">Laden...</p>
+      </div>
+    }>
+      <AutoDisplayContent />
+    </Suspense>
+  );
+}
+
+function AutoDisplayContent() {
+  const searchParams = useSearchParams();
+  const fixedPartyId = searchParams.get("partyId");
+  const [partyId, setPartyId] = useState<string | null>(fixedPartyId);
   const [data, setData] = useState<DisplayData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [progressMs, setProgressMs] = useState(0);
@@ -42,7 +57,10 @@ export default function AutoDisplayPage() {
     if (inFlightRef.current) return;
     inFlightRef.current = true;
     try {
-      const res = await fetch("/api/party/display", { cache: "no-store" });
+      const url = fixedPartyId
+        ? `/api/party/display?partyId=${encodeURIComponent(fixedPartyId)}`
+        : "/api/party/display";
+      const res = await fetch(url, { cache: "no-store" });
       const json = await res.json();
 
       if (!res.ok) {
