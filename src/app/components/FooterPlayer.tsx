@@ -31,21 +31,45 @@ export default function FooterPlayer() {
   const suppressStateUpdatesUntilRef = useRef(0);
   const pendingSeekMsRef = useRef<number | null>(null);
   const recoveringPlayerRef = useRef(false);
-  const cachedTokenRef = useRef<string | null>(null);
+  const cachedTokenRef = useRef<{ token: string; fetchedAt: number } | null>(null);
+  const tokenFetchInFlightRef = useRef<Promise<string | null> | null>(null);
+
+  // Token laeuft nach 60 Min ab. Nach 50 Min proaktiv refreshen, damit das SDK
+  // (das den Token via getOAuthToken-Callback bezieht) nie mit einem abgelaufenen
+  // Token rausgeht und in eine 401-Retry-Loop rutscht.
+  const TOKEN_CACHE_MAX_AGE_MS = 50 * 60 * 1000;
 
   const fetchAccessToken = async (forceRefresh = false): Promise<string | null> => {
-    if (!forceRefresh && cachedTokenRef.current) return cachedTokenRef.current;
-    try {
-      const res = await fetch("/api/auth/token", { cache: "no-store" });
-      if (!res.ok) return null;
-      const data = await res.json();
-      const token = typeof data?.access_token === "string" ? data.access_token : null;
-      cachedTokenRef.current = token;
-      return token;
-    } catch (err) {
-      console.error("Token Fetch Error:", err);
-      return null;
+    if (!forceRefresh && cachedTokenRef.current) {
+      const age = Date.now() - cachedTokenRef.current.fetchedAt;
+      if (age < TOKEN_CACHE_MAX_AGE_MS) return cachedTokenRef.current.token;
     }
+    // Coalescing: Paralleles SDK + spotifyFetch sollen nur einen Refresh ausloesen.
+    if (tokenFetchInFlightRef.current) return tokenFetchInFlightRef.current;
+    const fetchPromise = (async () => {
+      try {
+        const res = await fetch("/api/auth/token", { cache: "no-store" });
+        if (!res.ok) {
+          cachedTokenRef.current = null;
+          return null;
+        }
+        const data = await res.json();
+        const token = typeof data?.access_token === "string" ? data.access_token : null;
+        if (token) {
+          cachedTokenRef.current = { token, fetchedAt: Date.now() };
+        } else {
+          cachedTokenRef.current = null;
+        }
+        return token;
+      } catch (err) {
+        console.error("Token Fetch Error:", err);
+        return null;
+      } finally {
+        tokenFetchInFlightRef.current = null;
+      }
+    })();
+    tokenFetchInFlightRef.current = fetchPromise;
+    return fetchPromise;
   };
 
   /** Spotify API fetch with automatic 401 retry + token refresh */
@@ -78,11 +102,65 @@ export default function FooterPlayer() {
     }
   };
 
+  /**
+   * Device-ID ans Backend melden. Bei Netzwerkfehler bis zu 3x mit Backoff erneut versuchen.
+   * Wichtig, weil sonst serverseitige play()-Calls ohne device_id rausgehen und auf dem
+   * falschen / letzten bekannten Device landen.
+   */
+  const registerDeviceWithRetry = async (deviceId: string | null, maxAttempts = 3) => {
+    let lastError: unknown = null;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const res = await fetch("/api/party/device", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ deviceId }),
+        });
+        if (res.ok) return true;
+        lastError = new Error(`HTTP ${res.status}`);
+      } catch (err) {
+        lastError = err;
+      }
+      if (attempt < maxAttempts) {
+        await new Promise((r) => setTimeout(r, 500 * attempt));
+      }
+    }
+    console.warn("[FooterPlayer] Device-Registration fehlgeschlagen nach Retries:", lastError);
+    return false;
+  };
+
+  /**
+   * Device-ID beim Backend abmelden. Bei Tab-Close via sendBeacon,
+   * damit das Backend nicht mit einer stale Device-ID hängen bleibt.
+   */
+  const unregisterDevice = (useBeacon = false) => {
+    const payload = JSON.stringify({ deviceId: null });
+    if (useBeacon && typeof navigator !== "undefined" && navigator.sendBeacon) {
+      const blob = new Blob([payload], { type: "application/json" });
+      navigator.sendBeacon("/api/party/device", blob);
+      return;
+    }
+    fetch("/api/party/device", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: payload,
+      keepalive: true,
+    }).catch((err) => {
+      console.warn("[FooterPlayer] unregisterDevice Fehler:", err);
+    });
+  };
+
   const fetchCurrentVolume = async () => {
     try {
       const res = await spotifyFetch("https://api.spotify.com/v1/me/player");
       if (!res.ok) return;
-      const data = await res.json();
+      // Spotify liefert 204 No Content wenn kein aktives Device / Playback vorhanden.
+      // res.json() crashed dann mit "Unexpected end of JSON input".
+      if (res.status === 204) return;
+      const text = await res.text();
+      if (!text) return;
+      let data: any;
+      try { data = JSON.parse(text); } catch { return; }
       const value = data?.device?.volume_percent;
       if (typeof value === "number") {
         setVolume(Math.max(0, Math.min(100, Math.round(value))));
@@ -133,6 +211,10 @@ export default function FooterPlayer() {
   useEffect(() => {
     let isCancelled = false;
     let mountedPlayer: any = null;
+    // Merke uns das letzte bereits aktivierte Device, damit wiederholte ready-Events
+    // (StrictMode Double-Mount im Dev, oder SDK-internes Reconnect) nicht erneut
+    // den Transfer-Call mit play:false ausloesen → der pausiert Spotify.
+    let activatedDeviceId: string | null = null;
 
     const ensureSpotifySdk = async () => {
       if (!document.querySelector(`script[src="${SPOTIFY_SDK_SRC}"]`)) {
@@ -161,10 +243,17 @@ export default function FooterPlayer() {
 
         console.log("🎧 Spotify Web Playback SDK ready");
 
+        let lastSdkTokenCallAt = 0;
         const newPlayer = new window.Spotify.Player({
           name: "Party Player",
           getOAuthToken: async (cb: (token: string) => void) => {
-            const token = await fetchAccessToken();
+            // Wenn das SDK binnen 30s erneut ein Token anfordert, ist das ein
+            // Retry-Signal nach 401 → force-refresh, sonst wuerden wir dasselbe
+            // abgelaufene Token zurueckgeben und eine Endlos-Loop erzeugen.
+            const now = Date.now();
+            const forceRefresh = now - lastSdkTokenCallAt < 30_000;
+            lastSdkTokenCallAt = now;
+            const token = await fetchAccessToken(forceRefresh);
             cb(token ?? "");
           },
           volume: 0.5,
@@ -178,6 +267,17 @@ export default function FooterPlayer() {
           setIsReady(true);
           setPlayer(newPlayer);
 
+          // Device-ID ans Backend melden (idempotent).
+          await registerDeviceWithRetry(device_id);
+
+          // Wenn wir dieses Device bereits aktiviert haben, nicht erneut transferieren.
+          // Ein zweiter PUT /me/player { play: false } pausiert sonst das laufende Playback.
+          if (activatedDeviceId === device_id) {
+            console.log("ℹ️ Device bereits aktiviert, skip Transfer");
+            if (!isCancelled) setIsConnecting(false);
+            return;
+          }
+
           // Gerät aktivieren (wie Spotify-Web)
           setIsConnecting(true);
           try {
@@ -186,6 +286,7 @@ export default function FooterPlayer() {
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ device_ids: [device_id], play: false }),
             });
+            activatedDeviceId = device_id;
 
             console.log("🟢 Gerät bei Spotify aktiviert, warte auf Sync...");
             // 2 Sekunden warten, bis Spotify intern das Device synchronisiert
@@ -204,6 +305,8 @@ export default function FooterPlayer() {
         newPlayer.addListener("not_ready", async ({ device_id }: any) => {
           console.log("⚠️ Device offline:", device_id);
           setIsReady(false);
+          // Track sofort als pausiert markieren – sonst läuft der Progress-Timer weiter
+          setTrack((prev) => prev ? { ...prev, isplaying: false } : prev);
           // Auto-reconnect nach 3 Sekunden
           await new Promise((r) => setTimeout(r, 3000));
           if (!isCancelled) {
@@ -241,12 +344,16 @@ export default function FooterPlayer() {
             pendingSeekMsRef.current = null;
           }
 
+          const artistList = Array.isArray(current.artists)
+            ? current.artists.map((a: any) => a?.name).filter(Boolean).join(", ")
+            : "";
+          const albumArt = current.album?.images?.[0]?.url;
           setTrack({
             id: current.id,
             uri: current.uri,
             name: current.name,
-            artist: current.artists.map((a: any) => a.name).join(", "),
-            albumArt: current.album.images?.[0]?.url,
+            artist: artistList,
+            albumArt,
             durationMs: state.duration,
             progressMs: state.position,
             isplaying: !state.paused,
@@ -315,10 +422,24 @@ export default function FooterPlayer() {
       await fetchAccessToken(true);
     }, 45 * 60 * 1000);
 
+    // Bei Tab-Close die Device-ID abmelden, damit das Backend nicht mit einer
+    // toten Device-ID zurückbleibt und play()-Calls ins Leere gehen.
+    const onBeforeUnload = () => {
+      unregisterDevice(true);
+    };
+    if (typeof window !== "undefined") {
+      window.addEventListener("beforeunload", onBeforeUnload);
+    }
+
     return () => {
       isCancelled = true;
       clearInterval(tokenRefreshInterval);
       if (volumeUpdateTimeoutRef.current) clearTimeout(volumeUpdateTimeoutRef.current);
+      if (typeof window !== "undefined") {
+        window.removeEventListener("beforeunload", onBeforeUnload);
+      }
+      // Device beim Unmount abmelden (nicht via sendBeacon — normaler fetch reicht).
+      unregisterDevice(false);
       if (mountedPlayer) mountedPlayer.disconnect();
     };
   }, []);
@@ -362,10 +483,21 @@ export default function FooterPlayer() {
     try {
       const state = await player?.getCurrentState();
       return state ?? null;
-    } catch {
+    } catch (err) {
+      console.warn("[FooterPlayer] getPlayerState Fehler:", err);
       return null;
     }
   };
+
+  // Device-ID regelmäßig re-registrieren, damit das Backend auch nach einem
+  // Server-Restart oder verlorenen Request die korrekte Device-ID kennt.
+  useEffect(() => {
+    if (!deviceId) return;
+    const interval = setInterval(() => {
+      void registerDeviceWithRetry(deviceId, 1);
+    }, 30_000);
+    return () => clearInterval(interval);
+  }, [deviceId]);
 
   useEffect(() => {
     if (!player || !deviceId) return;
@@ -376,11 +508,22 @@ export default function FooterPlayer() {
         if (!state) {
           console.log("🔄 Healthcheck: kein Player-State, starte Recovery...");
           await recoverPlayerSession();
+          return;
         }
+        // SDK-State mit React-State abgleichen:
+        // Wenn das SDK pausiert/gestoppt ist aber React noch isplaying=true zeigt → korrigieren
+        const sdkIsPlaying = !state.paused;
+        setTrack((prev) => {
+          if (!prev) return prev;
+          if (prev.isplaying !== sdkIsPlaying) {
+            return { ...prev, isplaying: sdkIsPlaying, progressMs: state.position ?? prev.progressMs };
+          }
+          return prev;
+        });
       } catch (err) {
         console.error("Player Healthcheck Error:", err);
       }
-    }, 12000);
+    }, 5000);
 
     return () => clearInterval(interval);
   }, [player, deviceId]);
@@ -462,13 +605,39 @@ export default function FooterPlayer() {
     try {
       await activatePlayer();
 
-      await spotifyFetch("https://api.spotify.com/v1/me/player", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ device_ids: [deviceId], play: false }),
-      });
+      // Nur transferieren wenn unser Device NICHT bereits das aktive ist UND
+      // nichts laeuft — sonst pausiert play:false das Playback unnoetig.
+      let shouldTransfer = true;
+      try {
+        const res = await spotifyFetch("https://api.spotify.com/v1/me/player");
+        if (res.ok && res.status !== 204) {
+          const text = await res.text();
+          if (text) {
+            const data = JSON.parse(text);
+            const activeId = data?.device?.id;
+            const isPlaying = data?.is_playing === true;
+            // Wenn unser Device bereits aktiv ist oder gerade etwas laeuft,
+            // kein Transfer durchfuehren.
+            if (activeId === deviceId || isPlaying) {
+              shouldTransfer = false;
+            }
+          }
+        }
+      } catch {
+        // Wenn wir den State nicht lesen koennen, bleibt der Transfer-Fallback.
+      }
+
+      if (shouldTransfer) {
+        await spotifyFetch("https://api.spotify.com/v1/me/player", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ device_ids: [deviceId], play: false }),
+        });
+      }
 
       await fetchCurrentVolume();
+      // Nach Recovery echten Track-State holen damit Display korrekt ist
+      await fetchCurrentTrackFallback();
     } catch (err) {
       console.error("Player Recovery Error:", err);
     } finally {

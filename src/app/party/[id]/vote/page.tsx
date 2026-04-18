@@ -105,7 +105,12 @@ export default function MobileVotePage({ params }: { params: Promise<{ id: strin
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const clientId = useRef<string>("");
-  useEffect(() => { clientId.current = getClientId(); }, []);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    clientId.current = getClientId();
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   const buildSpotifyLink = useCallback((track: { id?: string; uri?: string }) => {
     if (track.id) return `https://open.spotify.com/track/${encodeURIComponent(track.id)}`;
@@ -124,6 +129,7 @@ export default function MobileVotePage({ params }: { params: Promise<{ id: strin
     try {
       const res = await fetch(`/api/party/mobile?partyId=${partyId}`, { cache: "no-store" });
       const data = await res.json();
+      if (!mountedRef.current) return;
       if (!res.ok) { setError(data.error || "Fehler"); return; }
       setError(null);
 
@@ -142,7 +148,10 @@ export default function MobileVotePage({ params }: { params: Promise<{ id: strin
       setSuggestionsEnabled(data.suggestionsEnabled === true);
       if (Array.isArray(data.suggestions)) setSuggestions(data.suggestions);
       if (typeof data.suggestionThreshold === "number") setSuggestionThreshold(data.suggestionThreshold);
-    } catch { setError("Netzwerkfehler"); } finally { inFlightRef.current = false; }
+    } catch (err) {
+      console.warn("[vote/page] load error:", err);
+      if (mountedRef.current) setError("Netzwerkfehler");
+    } finally { inFlightRef.current = false; }
   };
 
   useEffect(() => {
@@ -173,6 +182,7 @@ export default function MobileVotePage({ params }: { params: Promise<{ id: strin
     try {
       const res = await fetch("/api/party/vote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ partyId, trackId, clientId: cid, action }) });
       const data = await res.json().catch(() => ({}));
+      if (!mountedRef.current) return;
       if (!res.ok || data.status === "not_found") {
         setSongs(prev); top10SignatureRef.current = getTop10Signature(prev);
         setVotedTrackIds((p) => { const n = new Set(p); wasVoted ? n.add(trackId) : n.delete(trackId); return n; });
@@ -182,11 +192,15 @@ export default function MobileVotePage({ params }: { params: Promise<{ id: strin
       if (data.status === "removed" || data.status === "not_voted") { unmarkVoted(partyId, trackId); setVotedTrackIds((p) => { const n = new Set(p); n.delete(trackId); return n; }); }
       if (Array.isArray(data.top10)) { const st = data.top10 as PartyTrack[]; const ns = getTop10Signature(st); if (ns !== top10SignatureRef.current) { top10SignatureRef.current = ns; setSongs(st); } }
       if (typeof data.version === "number") versionRef.current = data.version;
-    } catch {
+    } catch (err) {
+      console.warn("[vote/page] vote error:", err);
+      if (!mountedRef.current) return;
       setSongs(prev); top10SignatureRef.current = getTop10Signature(prev);
       setVotedTrackIds((p) => { const n = new Set(p); wasVoted ? n.add(trackId) : n.delete(trackId); return n; });
     } finally {
-      setPendingVoteTrackIds((p) => { const n = new Set(p); n.delete(trackId); return n; });
+      if (mountedRef.current) {
+        setPendingVoteTrackIds((p) => { const n = new Set(p); n.delete(trackId); return n; });
+      }
     }
   };
 
@@ -198,9 +212,13 @@ export default function MobileVotePage({ params }: { params: Promise<{ id: strin
     try {
       const res = await fetch(`/api/party/suggest-search?q=${encodeURIComponent(q)}&limit=8`);
       const data = await res.json();
+      if (!mountedRef.current) return;
       setSearchResults(Array.isArray(data.tracks) ? data.tracks : []);
-    } catch { setSearchResults([]); }
-    finally { setSearchLoading(false); }
+    } catch (err) {
+      console.warn("[vote/page] search error:", err);
+      if (mountedRef.current) setSearchResults([]);
+    }
+    finally { if (mountedRef.current) setSearchLoading(false); }
   }, []);
 
   const onSearchInput = (value: string) => {
@@ -220,14 +238,17 @@ export default function MobileVotePage({ params }: { params: Promise<{ id: strin
         body: JSON.stringify({ partyId, track, clientId: clientId.current || getClientId() }),
       });
       const data = await res.json();
+      if (!mountedRef.current) return;
       if (data.status === "ok") {
         setShowSearch(false);
         setSearchQuery("");
         setSearchResults([]);
         if (Array.isArray(data.suggestions)) setSuggestions(data.suggestions);
       }
-    } catch {}
-    finally { setSuggestPending(false); }
+    } catch (err) {
+      console.warn("[vote/page] submitSuggestion error:", err);
+    }
+    finally { if (mountedRef.current) setSuggestPending(false); }
   };
 
   /* ── Vote on Suggestion ──────────────────────────────────────────────── */
@@ -243,8 +264,11 @@ export default function MobileVotePage({ params }: { params: Promise<{ id: strin
         body: JSON.stringify({ partyId, trackId, clientId: cid, action: alreadyVoted ? "unvote" : "vote" }),
       });
       const data = await res.json();
+      if (!mountedRef.current) return;
       if (Array.isArray(data.suggestions)) setSuggestions(data.suggestions);
-    } catch {}
+    } catch (err) {
+      console.warn("[vote/page] voteSuggestion error:", err);
+    }
   };
 
   /* ── Derived state ───────────────────────────────────────────────────── */

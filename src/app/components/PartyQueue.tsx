@@ -1,6 +1,6 @@
 "use client";
 
-import { DragEvent, Fragment, TouchEvent, useState, useEffect } from "react";
+import { DragEvent, Fragment, TouchEvent, useState, useEffect, useRef } from "react";
 import QRCode from "react-qr-code";
 import { useParty } from "@/app/context/PartyContext";
 import PartyManagementSheet from "@/app/components/PartyManagementSheet";
@@ -12,6 +12,40 @@ import {
 // Typ aus deinem bestehenden Spotify-Provider
 // Beispiel: src/app/lib/types/track.ts
 import type { PartyTrack, Track } from "../lib/providers/types";
+
+/* Ticker: scrollt Text horizontal, wenn er nicht in den Container passt.
+   Gleicher Mechanismus wie in der Voting-Seite, damit lange Song-/Artist-Namen
+   in der Host-Queue nicht abgeschnitten werden. */
+function Ticker({ text, className = "" }: { text: string; className?: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [scroll, setScroll] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const check = () => setScroll(el.scrollWidth > el.clientWidth + 1);
+    const id = requestAnimationFrame(check);
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return () => {
+      cancelAnimationFrame(id);
+      ro.disconnect();
+    };
+  }, [text]);
+
+  return (
+    <div ref={ref} className={`overflow-hidden whitespace-nowrap ${className}`}>
+      {scroll ? (
+        <span className="inline-flex ticker-scroll">
+          <span className="pr-8">{text}</span>
+          <span aria-hidden className="pr-8">{text}</span>
+        </span>
+      ) : (
+        text
+      )}
+    </div>
+  );
+}
 
 interface PartyListItem {
   partyId: string;
@@ -515,20 +549,20 @@ export default function PartyQueue() {
                       : "border-neutral-800"
                   }`}
                 >
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
                     {track.albumArt && (
                       <img
                         src={track.albumArt}
                         alt={track.name}
-                        className="w-12 h-12 rounded-md object-cover"
+                        className="w-12 h-12 rounded-md object-cover flex-shrink-0"
                       />
                     )}
-                    <div>
-                      <p className="text-gray-100 font-medium truncate">{track.name}</p>
-                      <p className="text-gray-400 text-sm truncate">{track.artist}</p>
+                    <div className="min-w-0 flex-1">
+                      <Ticker text={track.name} className="text-gray-100 font-medium" />
+                      <Ticker text={track.artist} className="text-gray-400 text-sm" />
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 relative">
+                  <div className="flex items-center gap-2 relative flex-shrink-0">
                     {isInMobileTop && (
                       <span className="text-[10px] px-2 py-0.5 rounded bg-yellow-700/40 text-yellow-300 border border-yellow-700">
                         Mobile Top 10

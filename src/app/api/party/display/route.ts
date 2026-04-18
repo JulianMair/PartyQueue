@@ -34,5 +34,9 @@ export async function GET(req: Request) {
     isActive: state.isActive,
     currentTrack: state.currentTrack ?? null,
     queue: (state.queue ?? []).slice(0, 10),
+    // Timestamps für robuste Progress-Interpolation auf dem Client:
+    // Client kann so ausrechnen wie alt der gemeldete progressMs-Wert ist
+    // und bei stall-gewordenem Server-Sync nicht zurückspringen.
+    serverTime: Date.now(),
   });
 }

@@ -60,6 +60,15 @@ export class PartyManager extends EventEmitter {
   private lastPlaybackProgressMs = 0;
   private lastPlaybackObservedAt = 0;
   private suppressAutoAdvanceUntil = 0;
+  private lastObservedPlayingAt = 0; // Zeitstempel des letzten is_playing=true Sync-Ticks
+  private lastPlayingRemainingMs = Number.POSITIVE_INFINITY; // Restzeit beim letzten isPlaying=true Tick
+  private lastPlayingProgressMs = 0; // Progress beim letzten isPlaying=true Tick
+  private lastPlayingDurationMs = 0; // Duration beim letzten isPlaying=true Tick
+  private syncInProgress = false; // Verhindert parallele syncWithSpotify-Aufrufe
+  private syncLockStartedAt = 0; // Timestamp fuer Lock-Timeout-Erkennung
+  private stalledSinceAt = 0; // Wenn isPlaying=false + Queue nicht leer: Stall-Erkennung
+  private failedTrackIds: Set<string> = new Set(); // Tracks, deren play() gescheitert ist
+  private lastPlayFailureAt = 0;
 
 
   constructor(
@@ -206,6 +215,11 @@ export class PartyManager extends EventEmitter {
 
   async startParty() {
     this.state.isActive = true;
+    // Transition-Flags bei (Neu-)Aktivierung immer zurücksetzen.
+    // Verhindert stuck transitionInProgress nach Party-Wechsel.
+    this.transitionInProgress = false;
+    this.autoAdvanceCooldownUntil = 0;
+    this.suppressSyncMismatchUntil = 0;
     this.startSync();
     this.bumpVersion();
     this.emit("partyStarted", this.state);
@@ -714,15 +728,34 @@ export class PartyManager extends EventEmitter {
     const playNextInternal = async () => {
       try {
         const tuning = this.getTransitionTuning();
-        this.suppressSyncMismatchUntil = Date.now() + tuning.mismatchGraceMs + 2000;
+        // Kuerzer suppressen: Sync soll Fehlzustaende nach play() schneller korrigieren.
+        this.suppressSyncMismatchUntil = Date.now() + Math.min(tuning.mismatchGraceMs, 3000);
         await this.provider.play(next.uri);
-        this.suppressSyncMismatchUntil = Date.now() + tuning.mismatchGraceMs;
+        this.suppressSyncMismatchUntil = Date.now() + Math.min(tuning.mismatchGraceMs, 3000);
       } catch (err) {
         console.error("[PartyManager] Konnte nächsten Track nicht starten:", err);
+        this.lastPlayFailureAt = Date.now();
+        // Bug: Kaputter Track (Region-Lock, 404, etc.) → Endlos-Rollback-Schleife.
+        // Zweiten Fehlschlag desselben Tracks erkennen → permanent skip.
+        if (this.failedTrackIds.has(next.id)) {
+          console.warn(`[PartyManager] Track ${next.id} wiederholt fehlgeschlagen → skip permanent`);
+          this.voted.forEach((tracks) => tracks.delete(next.id));
+          this.playedTrackIds.add(next.id);
+          this.pendingTrimHandledTrackId = null;
+          this.autoAdvanceCooldownUntil = 0;
+          this.suppressSyncMismatchUntil = 0;
+          this.bumpVersion();
+          this.emit("queueUpdated", this.state.queue);
+          this.emit("stateChanged", this.state);
+          return false;
+        }
+        this.failedTrackIds.add(next.id);
         rollbackQueue();
         return false;
       }
 
+      // Erfolgreich gestartet → aus Failure-Set entfernen falls vorher markiert.
+      this.failedTrackIds.delete(next.id);
       commitTransition();
       return true;
     };
@@ -782,7 +815,12 @@ export class PartyManager extends EventEmitter {
         const curve = Math.pow(progress, tuning.fadeStepFactor);
         const targetVolume = Math.max(0, Math.round(currentVolume * (1 - curve)));
         const ok = await safeSetVolume(targetVolume);
-        if (!ok) break;
+        if (!ok) {
+          // Fix (Bug 5): Bei Fehler mitten im Fade-Out hart auf 0 setzen,
+          // damit der neue Track nicht auf Zwischen-Lautstärke startet.
+          await safeSetVolume(0);
+          break;
+        }
         if (i < steps) await wait(stepDelayMs);
       }
 
@@ -794,6 +832,10 @@ export class PartyManager extends EventEmitter {
       }
 
       // --- Phase 3: Gradueller Fade-Up ---
+      // Fix (Bug 4): Start hart auf 0 setzen, damit der neue Track wirklich
+      // von Stille einfadet statt mit ~70% zu beginnen (Schleife startet bei i=1).
+      await safeSetVolume(0);
+
       const fadeInMs = Math.round(totalFadeMs * 0.4);
       const fadeInSteps = Math.max(2, Math.min(tuning.fadeMaxSteps, Math.round(fadeInMs / 300)));
       const fadeInStepDelay = Math.round(fadeInMs / fadeInSteps);
@@ -823,10 +865,13 @@ export class PartyManager extends EventEmitter {
     const index = this.state.queue.findIndex((t) => t.uri === spotifyUri);
     if (index < 0) return false;
 
+    // Fix (Bug 6): Voting-Tail-Kandidat VOR dem Splice ermitteln, damit
+    // wir den tatsächlichen alten 10. Track entfernen und nicht den neuen.
+    const votingTailCandidateId = this.getVotingTailTrimCandidateId();
+
     const [next] = this.state.queue.splice(index, 1);
     if (!next) return false;
 
-    const votingTailCandidateId = this.getVotingTailTrimCandidateId();
     this.state.currentTrack = next;
     this.playedTrackIds.add(next.id);
     this.voted.forEach((tracks) => tracks.delete(next.id));
@@ -844,20 +889,72 @@ export class PartyManager extends EventEmitter {
 
   /** HAUPT-SYNC LOGIK */
   private async syncWithSpotify() {
+    // Lock-Timeout: Falls der vorherige Sync > 12s haengt (Netzwerk-Stall),
+    // Lock auf­brechen damit nicht der gesamte Sync-Loop steht.
+    if (this.syncInProgress) {
+      if (this.syncLockStartedAt && Date.now() - this.syncLockStartedAt > 12000) {
+        console.warn("[PartyManager] Sync-Lock-Timeout, Lock wird aufgebrochen");
+        this.syncInProgress = false;
+      } else {
+        return;
+      }
+    }
+    this.syncInProgress = true;
+    this.syncLockStartedAt = Date.now();
     try {
-      const playback = await this.provider.getCurrentPlayback();
-      if (!playback) return;
+      const now = Date.now();
+      let playback: any = null;
+      try {
+        playback = await this.provider.getCurrentPlayback();
+      } catch (err) {
+        console.warn("[PartyManager] getCurrentPlayback fehlgeschlagen:", err);
+        playback = null;
+      }
+
+      if (!playback) {
+        // Kein Playback-Objekt → evtl. Device offline, 204, oder Netzwerkfehler.
+        // Nur advancen wenn zuletzt wirklich nahe am Ende gespielt wurde,
+        // damit kurze Pause mitten im Song nicht faelschlich weiter­schaltet.
+        const wasNearEnd = this.lastPlayingRemainingMs < 6000;
+        if (
+          this.state.queue.length > 0 &&
+          this.lastObservedPlayingAt > 0 &&
+          now - this.lastObservedPlayingAt < 15000 &&
+          wasNearEnd &&
+          now > this.autoAdvanceCooldownUntil &&
+          !this.transitionInProgress
+        ) {
+          console.log("[PartyManager] Playback=null + war nahe am Ende → versuche naechsten");
+          await this.playNextTrack();
+        }
+        return;
+      }
 
       const spotifyItem = playback.item ?? null;
       const isPlaying = playback.is_playing ?? false;
 
+      // Merke uns wann zuletzt wirklich abgespielt wurde – inkl. Progress/Restzeit
+      // damit wir echte Song-Enden von manuellen Pausen unterscheiden koennen.
+      if (isPlaying) {
+        this.lastObservedPlayingAt = now;
+        const dur = spotifyItem?.duration_ms ?? 0;
+        const prog = playback.progress_ms ?? 0;
+        this.lastPlayingDurationMs = dur;
+        this.lastPlayingProgressMs = prog;
+        this.lastPlayingRemainingMs = dur > 0 ? Math.max(0, dur - prog) : Number.POSITIVE_INFINITY;
+      }
+
       // FALL 1: Kein Track mehr in Spotify (Song zu Ende, nicht nur pausiert)
       // Wichtig: !isPlaying allein reicht NICHT – das bedeutet nur "pausiert".
-      // Nur wenn Spotify keinen Track mehr hat, starten wir den naechsten.
+      // Nur wenn Spotify keinen Track mehr hat UND wir wissen dass der Song wirklich
+      // abgespielt wurde UND kurz vor dem Ende war, starten wir den nächsten.
       if (!spotifyItem && this.state.queue.length > 0) {
-        const now = Date.now();
-        if (now > this.autoAdvanceCooldownUntil && !this.transitionInProgress) {
-          console.log("[PartyManager] Kein Track in Spotify, Queue nicht leer → starte nächsten");
+        const wasPlayingRecently = now - this.lastObservedPlayingAt < 15000;
+        // Gate: nur advancen wenn zuletzt nahe am Songende → verhindert falsches Advance
+        // nach manueller Pause mitten im Song (z.B. Song pausiert, dann Device verliert Item).
+        const wasNearEnd = this.lastPlayingRemainingMs < 8000;
+        if (wasPlayingRecently && wasNearEnd && now > this.autoAdvanceCooldownUntil && !this.transitionInProgress) {
+          console.log("[PartyManager] Kein Track in Spotify + war nahe am Ende → starte nächsten");
           await this.playNextTrack();
         }
         return;
@@ -867,7 +964,6 @@ export class PartyManager extends EventEmitter {
 
       const spotifyUri = spotifyItem.uri;
       const currentUri = this.state.currentTrack?.uri;
-      const now = Date.now();
 
       // FALL 2: Spotify hat auf einen neuen Song gewechselt
       if (spotifyUri !== currentUri) {
@@ -877,10 +973,27 @@ export class PartyManager extends EventEmitter {
           return;
         }
         this.lastAdvanceSourceTrackId = null;
+        // Fix (Bug 11): Progress-Tracking nach Trackwechsel zurücksetzen, sonst
+        // vergleicht die Seek-Erkennung das neue Progress mit dem alten.
+        this.lastPlaybackTrackId = null;
+        this.lastPlaybackProgressMs = 0;
+        this.lastPlaybackObservedAt = 0;
+        // Near-end-Tracking ebenfalls resetten, sonst gilt "war nahe am Ende"
+        // noch fuer den neuen (gerade gestarteten) Track.
+        this.lastPlayingRemainingMs = Number.POSITIVE_INFINITY;
+        this.lastPlayingProgressMs = 0;
+        this.lastPlayingDurationMs = 0;
+        this.stalledSinceAt = 0;
+
         // Dedupe: Wechsel wurde bereits durch `playNextTrack` verarbeitet.
         if (spotifyItem.id && spotifyItem.id === this.pendingTrimHandledTrackId) {
           this.pendingTrimHandledTrackId = null;
         } else {
+          // Fix (Bug 7): Bei externem Trackwechsel den Pending-Trim-Marker
+          // zurücksetzen, damit nicht irgendwann ein späterer Track fälschlich
+          // als "bereits behandelt" erkannt wird.
+          this.pendingTrimHandledTrackId = null;
+
           // Suche den Track in der Queue per URI (nicht blind queue[0])
           const matchInQueue = this.state.queue.some((t) => t.uri === spotifyUri);
 
@@ -941,6 +1054,7 @@ export class PartyManager extends EventEmitter {
       const duration = spotifyItem.duration_ms ?? 0;
       if (this.state.currentTrack) {
         this.state.currentTrack.progressMs = progress;
+        this.state.currentTrack.progressObservedAt = now;
         this.state.currentTrack.isplaying = isPlaying;
         this.state.currentTrack.durationMs = duration;
       }
@@ -969,12 +1083,42 @@ export class PartyManager extends EventEmitter {
 
       // FALL 1b: Song ist natürlich zu Ende (pausiert am Ende, Item noch vorhanden)
       // Spotify setzt is_playing=false und behält den Track — FALL 1 greift hier nicht.
-      if (!isPlaying && duration > 0 && remaining < 3000 && this.state.queue.length > 0) {
+      // Guard: (1) der Song wurde kurz vorher noch abgespielt und (2) remaining ist
+      // wirklich nahe am Ende. Die aktuelle progress_ms ist aussagekraeftig selbst bei
+      // kurzer Pause, daher reicht remaining < 3000 als Ende-Signal.
+      const wasPlayingRecently = now - this.lastObservedPlayingAt < 15000;
+      if (!isPlaying && duration > 0 && remaining < 3000 && this.state.queue.length > 0 && wasPlayingRecently) {
         if (now > this.autoAdvanceCooldownUntil && !this.transitionInProgress) {
           console.log("[PartyManager] Song zu Ende (pausiert am Ende) → starte nächsten");
           await this.playNextTrack();
         }
         return;
+      }
+
+      // FALL 1d: Stall-Detector.
+      // Triggert NUR wenn der Song zuletzt nahe am Ende war — verhindert,
+      // dass manuelle Pause mitten im Song nach ~17s zum Auto-Advance fuehrt.
+      const wasNearEnd = this.lastPlayingRemainingMs < 6000;
+      if (
+        !isPlaying &&
+        wasNearEnd &&
+        this.state.queue.length > 0 &&
+        this.state.isActive &&
+        this.lastObservedPlayingAt > 0 &&
+        now - this.lastObservedPlayingAt > 12000 &&
+        now - this.lastObservedPlayingAt < 60000 &&
+        !this.transitionInProgress &&
+        now > this.autoAdvanceCooldownUntil
+      ) {
+        if (this.stalledSinceAt === 0) this.stalledSinceAt = now;
+        if (now - this.stalledSinceAt > 5000) {
+          console.warn("[PartyManager] Playback-Stall am Song-Ende → starte naechsten Track");
+          this.stalledSinceAt = 0;
+          await this.playNextTrack();
+          return;
+        }
+      } else if (isPlaying || !wasNearEnd) {
+        this.stalledSinceAt = 0;
       }
 
       // FALL 3: Ist der Song bald vorbei?
@@ -1024,6 +1168,9 @@ export class PartyManager extends EventEmitter {
       }
     } catch (err) {
       console.error("[PartyManager] Sync-Fehler:", err);
+    } finally {
+      this.syncInProgress = false;
+      this.syncLockStartedAt = 0;
     }
   }
 }

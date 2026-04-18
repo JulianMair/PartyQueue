@@ -108,6 +108,22 @@ export async function getSpotifyToken() {
     throw new Error("No token");
 }
 
+const DEFAULT_SPOTIFY_FETCH_TIMEOUT_MS = 8000;
+
+async function fetchWithTimeout(input: string, init: RequestInit, timeoutMs: number) {
+    // Falls der Aufrufer bereits einen AbortController uebergibt, nicht ueberschreiben.
+    if (init.signal) {
+        return fetch(input, init);
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        return await fetch(input, { ...init, signal: controller.signal });
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
 export async function spotifyApiFetch(
     input: string,
     init?: RequestInit
@@ -115,11 +131,15 @@ export async function spotifyApiFetch(
     const doRequest = async (token: string) => {
         const headers = new Headers(init?.headers);
         headers.set("Authorization", `Bearer ${token}`);
-        return fetch(input, {
-            ...init,
-            headers,
-            cache: init?.cache ?? "no-store",
-        });
+        return fetchWithTimeout(
+            input,
+            {
+                ...init,
+                headers,
+                cache: init?.cache ?? "no-store",
+            },
+            DEFAULT_SPOTIFY_FETCH_TIMEOUT_MS
+        );
     };
 
     const token = await getSpotifyToken();

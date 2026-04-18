@@ -15,8 +15,17 @@ class PartyRegistry {
   private readonly autoFillTimers: Map<string, ReturnType<typeof setInterval>> = new Map();
   private readonly autoFillRunning: Set<string> = new Set();
   private readonly recentAutoFillTrackIds: Map<string, string[]> = new Map();
+  private readonly persistenceAttached: Set<string> = new Set();
+  private readonly lastAccessedAt: Map<string, number> = new Map();
+  private evictionTimer: ReturnType<typeof setInterval> | null = null;
   private initialized = false;
   private initPromise: Promise<void> | null = null;
+
+  // Inaktive Parties werden nach dieser Idle-Zeit aus dem In-Memory-Cache entfernt
+  // (DB-Eintrag bleibt erhalten; beim nächsten Zugriff wird reloaded).
+  private static readonly IDLE_EVICTION_MS = 30 * 60 * 1000; // 30 Min
+  private static readonly EVICTION_INTERVAL_MS = 5 * 60 * 1000; // 5 Min
+  private static readonly PARTY_META_CACHE_MAX = 500;
 
   private constructor() {}
 
@@ -33,6 +42,73 @@ class PartyRegistry {
       this.initPromise = this.loadFromStore();
     }
     await this.initPromise;
+    this.ensureEvictionLoop();
+  }
+
+  private ensureEvictionLoop() {
+    if (this.evictionTimer) return;
+    this.evictionTimer = setInterval(() => {
+      this.evictIdleParties();
+    }, PartyRegistry.EVICTION_INTERVAL_MS);
+  }
+
+  private markAccessed(partyId: string) {
+    this.lastAccessedAt.set(partyId, Date.now());
+  }
+
+  private evictIdleParties() {
+    const now = Date.now();
+    for (const [partyId, manager] of this.parties.entries()) {
+      // Aktive Parties NIE evicten — sonst stirbt der Sync-Loop.
+      if (manager.getState().isActive) {
+        this.markAccessed(partyId);
+        continue;
+      }
+      const last = this.lastAccessedAt.get(partyId) ?? 0;
+      if (now - last < PartyRegistry.IDLE_EVICTION_MS) continue;
+      this.evictPartyFromCache(partyId);
+    }
+
+    // partyMeta kann unabhängig wachsen (Metadata-Lookups ohne Manager-Load).
+    // Hart cappen: älteste Einträge bis Größe <= MAX entfernen.
+    if (this.partyMeta.size > PartyRegistry.PARTY_META_CACHE_MAX) {
+      const sorted = Array.from(this.partyMeta.keys())
+        .map((id) => [id, this.lastAccessedAt.get(id) ?? 0] as const)
+        .sort((a, b) => a[1] - b[1]);
+      const excess = this.partyMeta.size - PartyRegistry.PARTY_META_CACHE_MAX;
+      for (let i = 0; i < excess; i++) {
+        const id = sorted[i][0];
+        if (this.parties.has(id)) continue; // nicht entfernen, solange Manager aktiv ist
+        this.partyMeta.delete(id);
+        this.lastAccessedAt.delete(id);
+      }
+    }
+  }
+
+  private evictPartyFromCache(partyId: string) {
+    const manager = this.parties.get(partyId);
+    if (!manager) return;
+    try {
+      manager.stopParty();
+      manager.removeAllListeners();
+    } catch (err) {
+      console.warn(`[PartyRegistry] Eviction cleanup Fehler für ${partyId}:`, err);
+    }
+    const autoFillTimer = this.autoFillTimers.get(partyId);
+    if (autoFillTimer) {
+      clearInterval(autoFillTimer);
+      this.autoFillTimers.delete(partyId);
+    }
+    const persistTimer = this.persistTimers.get(partyId);
+    if (persistTimer) {
+      clearTimeout(persistTimer);
+      this.persistTimers.delete(partyId);
+    }
+    this.persistenceAttached.delete(partyId);
+    this.autoFillRunning.delete(partyId);
+    this.recentAutoFillTrackIds.delete(partyId);
+    this.parties.delete(partyId);
+    // partyMeta + lastAccessedAt bewusst nicht entfernen — spart Reload bei Re-Zugriff.
   }
 
   private async loadFromStore() {
@@ -74,6 +150,8 @@ class PartyRegistry {
   }
 
   private attachPersistence(manager: PartyManager, partyId: string) {
+    if (this.persistenceAttached.has(partyId)) return;
+    this.persistenceAttached.add(partyId);
     manager.on("stateChanged", () => {
       this.schedulePersist(partyId);
     });
@@ -405,6 +483,7 @@ class PartyRegistry {
     const provider = getProvider(providerName);
     const manager = new PartyManager(partyId, provider);
     this.parties.set(partyId, manager);
+    this.markAccessed(partyId);
 
     const now = new Date().toISOString();
     const metadata: PartyMetadata = {
@@ -458,6 +537,7 @@ class PartyRegistry {
   async getParty(partyId: string) {
     await this.ensureInitialized();
 
+    this.markAccessed(partyId);
     const cached = this.parties.get(partyId);
     if (cached) return cached;
 
@@ -498,6 +578,7 @@ class PartyRegistry {
 
   async getPartyMetadata(partyId: string) {
     await this.ensureInitialized();
+    this.markAccessed(partyId);
     const cached = this.partyMeta.get(partyId);
     if (cached) return cached;
 
@@ -538,6 +619,8 @@ class PartyRegistry {
     }
     this.autoFillRunning.delete(partyId);
     this.recentAutoFillTrackIds.delete(partyId);
+    this.persistenceAttached.delete(partyId);
+    this.lastAccessedAt.delete(partyId);
 
     this.parties.delete(partyId);
     this.partyMeta.delete(partyId);
@@ -604,9 +687,9 @@ class PartyRegistry {
       }
     }
 
-    if (!target.getState().isActive) {
-      await target.startParty();
-    }
+    // Sync-Loop immer neu starten — auch wenn die Party schon als aktiv gilt.
+    // Verhindert stuck transitionInProgress und toten Sync nach Party-Wechsel.
+    await target.startParty();
 
     const meta = this.partyMeta.get(partyId);
     if (meta) {

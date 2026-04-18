@@ -13,6 +13,8 @@ export interface Track {
   albumArt?: string;
   durationMs?: number;
   progressMs?: number;
+  /** Zeitpunkt (Date.now() auf Server) wann progressMs zuletzt aus Spotify gelesen wurde. */
+  progressObservedAt?: number;
   isplaying?: boolean;
   explicit?: boolean;
 }
