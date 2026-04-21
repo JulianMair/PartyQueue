@@ -543,12 +543,18 @@ export class PartyManager extends EventEmitter {
   }
 
   private getSuggestionsJSON(): SuggestionJSON[] {
-    return Array.from(this.suggestions.values()).map((s) => ({
-      track: s.track,
-      suggestedBy: s.suggestedBy,
-      votes: Array.from(s.votes),
-      createdAt: s.createdAt,
-    }));
+    return Array.from(this.suggestions.values())
+      .map((s) => ({
+        track: s.track,
+        suggestedBy: s.suggestedBy,
+        votes: Array.from(s.votes),
+        createdAt: s.createdAt,
+      }))
+      // Sortierung: meiste Votes zuerst, bei Gleichstand der aeltere Vorschlag oben.
+      .sort((a, b) => {
+        if (b.votes.length !== a.votes.length) return b.votes.length - a.votes.length;
+        return a.createdAt - b.createdAt;
+      });
   }
 
   getSuggestions(): SuggestionJSON[] {
@@ -564,11 +570,7 @@ export class PartyManager extends EventEmitter {
   }
 
   suggest(track: Track, clientId: string): { status: "ok" | "already_suggested" | "duplicate" | "in_queue"; suggestion?: SuggestionJSON } {
-    // Already in queue?
-    if (this.state.queue.some((t) => t.id === track.id)) {
-      return { status: "in_queue" };
-    }
-    // Currently playing?
+    // Currently playing track darf nicht vorgeschlagen werden (spielt ja schon).
     if (this.state.currentTrack?.id === track.id) {
       return { status: "in_queue" };
     }
@@ -580,6 +582,9 @@ export class PartyManager extends EventEmitter {
     if (this.getClientSuggestion(clientId)) {
       return { status: "already_suggested" };
     }
+    // Bereits in der Queue? → Kein Fehler mehr. Der Track darf als Suggestion laufen;
+    // wenn der Threshold erreicht wird, uebertragen wir die Votes auf den Queue-Track
+    // damit er nach oben rutscht (Hochvoten fuer nicht-Top-10 Tracks).
 
     const suggestion: Suggestion = {
       track: { ...track, votes: 1, addedAt: Date.now() },
@@ -615,18 +620,38 @@ export class PartyManager extends EventEmitter {
     // Check if threshold reached → promote to queue
     if (suggestion.votes.size >= this.suggestionThreshold) {
       this.suggestions.delete(trackId);
-      const partyTrack: PartyTrack = {
-        ...suggestion.track,
-        votes: suggestion.votes.size,
-        addedAt: Date.now(),
-      };
-      this.state.queue.push(partyTrack);
-      this.sortQueue();
 
-      // Transfer votes to the voted map so they count as real votes
-      for (const voter of suggestion.votes) {
-        if (!this.voted.has(voter)) this.voted.set(voter, new Set());
-        this.voted.get(voter)!.add(trackId);
+      const existingIndex = this.state.queue.findIndex((t) => t.id === trackId);
+      if (existingIndex >= 0) {
+        // Track ist bereits in der Queue → Votes uebertragen (hochvoten).
+        // Nur Voter zaehlen die nicht bereits auf dem Queue-Track gevoted haben,
+        // damit niemand doppelt zaehlt.
+        const queueTrack = this.state.queue[existingIndex];
+        let added = 0;
+        for (const voter of suggestion.votes) {
+          if (!this.voted.has(voter)) this.voted.set(voter, new Set());
+          const voterSet = this.voted.get(voter)!;
+          if (!voterSet.has(trackId)) {
+            voterSet.add(trackId);
+            added += 1;
+          }
+        }
+        queueTrack.votes += added;
+        this.sortQueue();
+      } else {
+        // Normal: Track neu in die Queue einfuegen.
+        const partyTrack: PartyTrack = {
+          ...suggestion.track,
+          votes: suggestion.votes.size,
+          addedAt: Date.now(),
+        };
+        this.state.queue.push(partyTrack);
+        this.sortQueue();
+
+        for (const voter of suggestion.votes) {
+          if (!this.voted.has(voter)) this.voted.set(voter, new Set());
+          this.voted.get(voter)!.add(trackId);
+        }
       }
 
       this.bumpVersion();
