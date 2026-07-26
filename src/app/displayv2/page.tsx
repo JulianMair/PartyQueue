@@ -31,18 +31,6 @@ export default function DisplayV2Page() {
   );
 }
 
-/**
- * Auf Breitbild (16:9 / 16:10 / 21:9) ist die Höhe der Engpass: 10 Zeilen
- * untereinander bleiben zwangsläufig klein, während seitlich Platz frei liegt.
- * Deshalb dort zweispaltig (1-5 / 6-10) — jede Zeile wird doppelt so hoch und
- * damit aus der Ferne deutlich besser lesbar. Schmalere Formate bleiben
- * einspaltig, da fehlt die Breite für zwei Spalten.
- */
-function isWideRatio(width: number, height: number) {
-  if (height <= 0) return true;
-  return width / height >= 1.5;
-}
-
 function DisplayV2Content() {
   const searchParams = useSearchParams();
   const fixedPartyId = searchParams.get("partyId");
@@ -53,8 +41,10 @@ function DisplayV2Content() {
   const inFlightRef = useRef(false);
   const versionRef = useRef(0);
 
+  // Auf Breitbild steht der QR rechts neben der Liste, sonst als Leiste unten.
   useEffect(() => {
-    const update = () => setIsWide(isWideRatio(window.innerWidth, window.innerHeight));
+    const update = () =>
+      setIsWide(window.innerHeight > 0 && window.innerWidth / window.innerHeight >= 1.4);
     update();
     window.addEventListener("resize", update);
     return () => window.removeEventListener("resize", update);
@@ -144,98 +134,21 @@ function DisplayV2Content() {
 
   const queue = data?.queue ?? [];
   const maxVotes = queue.reduce((m, t) => Math.max(m, t.votes ?? 0), 0);
+  const rowCount = Math.max(1, queue.length);
 
-  // Zwei Spalten nur wenn Breitbild UND genug Songs — sonst bliebe rechts Leere.
-  const twoColumns = isWide && queue.length > 5;
-  const splitAt = twoColumns ? Math.ceil(queue.length / 2) : queue.length;
-  const columns = twoColumns
-    ? [
-        { items: queue.slice(0, splitAt), offset: 0 },
-        { items: queue.slice(splitAt), offset: splitAt },
-      ]
-    : [{ items: queue, offset: 0 }];
+  // Die Zeilen teilen sich die Fläche via flex: 1 1 0. Damit die Schrift die
+  // Zeilenhöhe ausfüllt statt an einer festen vh-Zahl zu kleben, wird sie aus
+  // der tatsächlichen Zeilenzahl abgeleitet: ~82vh nutzbare Höhe / Zeilen.
+  // Bei 1920x1080 und 10 Songs sind das ~88px pro Zeile → Titel ~35px.
+  const rowVh = 82 / rowCount;
+  const vh = (factor: number, min: string, max: string) =>
+    `clamp(${min}, ${(rowVh * factor).toFixed(2)}vh, ${max})`;
 
-  // Bei 5 Zeilen pro Spalte ist jede Zeile doppelt so hoch wie bei 10 —
-  // die Typo darf entsprechend größer skalieren.
-  const rowCount = twoColumns ? splitAt : Math.max(1, queue.length);
-  const big = rowCount <= 6;
-
-  const rankSize = big ? "clamp(1.5rem, 6vh, 5rem)" : "clamp(1.1rem, 3.6vh, 2.5rem)";
-  const titleSize = big ? "clamp(1.1rem, 4.2vh, 3.25rem)" : "clamp(0.9rem, 2.6vh, 1.9rem)";
-  const artistSize = big ? "clamp(0.85rem, 2.4vh, 1.9rem)" : "clamp(0.7rem, 1.7vh, 1.15rem)";
-  const voteSize = big ? "clamp(1.5rem, 6vh, 5rem)" : "clamp(1.1rem, 3.6vh, 2.5rem)";
-  const voteLabelSize = big ? "clamp(0.6rem, 1.3vh, 1.05rem)" : "clamp(0.5rem, 1vh, 0.8rem)";
-
-  const renderRow = (track: PartyTrack, rank: number) => {
-    const isLeader = track.votes > 0 && track.votes === maxVotes;
-    return (
-      <div
-        key={`${track.id}-${track.addedAt}`}
-        className={`flex items-center rounded-2xl min-h-0 overflow-hidden border ${
-          isLeader
-            ? "bg-yellow-500/10 border-yellow-500/40"
-            : "bg-neutral-900/70 border-neutral-800/60"
-        }`}
-        style={{
-          flex: "1 1 0",
-          gap: "clamp(0.6rem, 1.4vw, 1.75rem)",
-          padding: "clamp(0.35rem, 1vh, 1rem) clamp(0.6rem, 1.4vw, 1.5rem)",
-        }}
-      >
-        <span
-          className={`font-bold font-mono text-center flex-shrink-0 tabular-nums ${
-            isLeader ? "text-yellow-500" : "text-neutral-600"
-          }`}
-          style={{ fontSize: rankSize, width: "clamp(1.5rem, 3.5vw, 4.5rem)" }}
-        >
-          {rank}
-        </span>
-
-        {track.albumArt ? (
-          <img
-            src={track.albumArt}
-            alt={track.name}
-            className="rounded-lg object-cover flex-shrink-0 aspect-square"
-            style={{ height: "80%" }}
-          />
-        ) : (
-          <div
-            className="bg-neutral-800 rounded-lg flex-shrink-0 aspect-square"
-            style={{ height: "80%" }}
-          />
-        )}
-
-        <div className="flex-1 min-w-0">
-          <p className="font-bold truncate leading-tight" style={{ fontSize: titleSize }}>
-            {track.name}
-          </p>
-          <p
-            className="text-neutral-400 truncate leading-tight"
-            style={{ fontSize: artistSize, marginTop: "0.1rem" }}
-          >
-            {track.artist}
-          </p>
-        </div>
-
-        <div className="flex-shrink-0 flex flex-col items-center justify-center leading-none">
-          <span
-            className={`font-extrabold tabular-nums ${
-              isLeader ? "text-yellow-500" : "text-white"
-            }`}
-            style={{ fontSize: voteSize }}
-          >
-            {track.votes ?? 0}
-          </span>
-          <span
-            className="text-neutral-500 uppercase tracking-wider"
-            style={{ fontSize: voteLabelSize }}
-          >
-            {track.votes === 1 ? "Vote" : "Votes"}
-          </span>
-        </div>
-      </div>
-    );
-  };
+  const rankSize = vh(0.46, "1rem", "3.25rem");
+  const titleSize = vh(0.4, "0.9rem", "2.75rem");
+  const artistSize = vh(0.25, "0.7rem", "1.6rem");
+  const voteSize = vh(0.46, "1rem", "3.25rem");
+  const voteLabelSize = vh(0.14, "0.5rem", "1rem");
 
   return (
     <div className="h-screen bg-neutral-950 text-white flex flex-col overflow-hidden select-none">
@@ -244,21 +157,21 @@ function DisplayV2Content() {
       )}
 
       <div className={`flex-1 min-h-0 flex ${isWide ? "flex-row" : "flex-col"}`}>
-        {/* Songs */}
+        {/* Songliste */}
         <div className="flex-1 min-w-0 flex flex-col">
           <div
             className="flex-shrink-0"
-            style={{ padding: "clamp(0.6rem, 1.8vh, 1.75rem) clamp(1rem, 2.5vw, 2.5rem) 0" }}
+            style={{ padding: "clamp(0.6rem, 1.6vh, 1.5rem) clamp(1rem, 2vw, 2.5rem) 0" }}
           >
             <p
               className="text-neutral-500 font-semibold uppercase tracking-widest leading-tight"
-              style={{ fontSize: "clamp(0.65rem, 1.3vh, 1.1rem)" }}
+              style={{ fontSize: "clamp(0.65rem, 1.2vh, 1rem)" }}
             >
               Top 10 &mdash; Voting
             </p>
             <h1
               className="font-bold truncate leading-tight"
-              style={{ fontSize: "clamp(1.25rem, 4.2vh, 3.5rem)" }}
+              style={{ fontSize: "clamp(1.25rem, 3.6vh, 3rem)" }}
             >
               {data?.name}
             </h1>
@@ -272,21 +185,85 @@ function DisplayV2Content() {
             </div>
           ) : (
             <div
-              className="flex-1 min-h-0 flex"
+              className="flex-1 min-h-0 flex flex-col"
               style={{
-                gap: "clamp(0.5rem, 1.4vw, 1.5rem)",
-                padding: "clamp(0.5rem, 1.5vh, 1.5rem) clamp(1rem, 2.5vw, 2.5rem)",
+                gap: "clamp(3px, 0.8vh, 12px)",
+                padding: "clamp(0.5rem, 1.2vh, 1.25rem) clamp(1rem, 2vw, 2.5rem)",
               }}
             >
-              {columns.map((col, ci) => (
-                <div
-                  key={ci}
-                  className="flex-1 min-w-0 min-h-0 flex flex-col"
-                  style={{ gap: "clamp(4px, 1vh, 14px)" }}
-                >
-                  {col.items.map((track, i) => renderRow(track, col.offset + i + 1))}
-                </div>
-              ))}
+              {queue.map((track, i) => {
+                const isLeader = track.votes > 0 && track.votes === maxVotes;
+                return (
+                  <div
+                    key={`${track.id}-${track.addedAt}`}
+                    className={`flex items-center rounded-xl min-h-0 overflow-hidden border ${
+                      isLeader
+                        ? "bg-yellow-500/10 border-yellow-500/40"
+                        : "bg-neutral-900/70 border-neutral-800/60"
+                    }`}
+                    style={{
+                      flex: "1 1 0",
+                      gap: "clamp(0.6rem, 1.2vw, 1.75rem)",
+                      padding: "0 clamp(0.75rem, 1.4vw, 1.75rem)",
+                    }}
+                  >
+                    <span
+                      className={`font-bold font-mono text-center flex-shrink-0 tabular-nums ${
+                        isLeader ? "text-yellow-500" : "text-neutral-600"
+                      }`}
+                      style={{ fontSize: rankSize, width: "clamp(1.5rem, 3vw, 3.75rem)" }}
+                    >
+                      {i + 1}
+                    </span>
+
+                    {track.albumArt ? (
+                      <img
+                        src={track.albumArt}
+                        alt={track.name}
+                        className="rounded-lg object-cover flex-shrink-0 aspect-square"
+                        style={{ height: "76%" }}
+                      />
+                    ) : (
+                      <div
+                        className="bg-neutral-800 rounded-lg flex-shrink-0 aspect-square"
+                        style={{ height: "76%" }}
+                      />
+                    )}
+
+                    <div className="flex-1 min-w-0">
+                      <p
+                        className="font-bold truncate leading-tight"
+                        style={{ fontSize: titleSize }}
+                      >
+                        {track.name}
+                      </p>
+                      <p
+                        className="text-neutral-400 truncate leading-tight"
+                        style={{ fontSize: artistSize, marginTop: "0.1rem" }}
+                      >
+                        {track.artist}
+                      </p>
+                    </div>
+
+                    <div className="flex-shrink-0 flex flex-col items-center justify-center leading-none">
+                      <span
+                        className={`font-extrabold tabular-nums ${
+                          isLeader ? "text-yellow-500" : "text-white"
+                        }`}
+                        style={{ fontSize: voteSize }}
+                      >
+                        {track.votes ?? 0}
+                      </span>
+                      <span
+                        className="text-neutral-500 uppercase tracking-wider"
+                        style={{ fontSize: voteLabelSize, marginTop: "0.15em" }}
+                      >
+                        {track.votes === 1 ? "Vote" : "Votes"}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -300,21 +277,21 @@ function DisplayV2Content() {
                 : "flex-row border-t border-neutral-800"
             }`}
             style={{
-              gap: "clamp(0.5rem, 1.5vh, 1.25rem)",
+              gap: "clamp(0.5rem, 1.4vh, 1.25rem)",
               padding: "clamp(0.75rem, 2vh, 2rem) clamp(1rem, 1.5vw, 2rem)",
-              width: isWide ? "clamp(210px, 24vw, 460px)" : undefined,
+              width: isWide ? "clamp(200px, 21vw, 400px)" : undefined,
             }}
           >
             <p
               className="text-neutral-300 font-semibold uppercase tracking-widest text-center leading-tight"
-              style={{ fontSize: "clamp(0.7rem, 1.8vh, 1.5rem)" }}
+              style={{ fontSize: "clamp(0.7rem, 1.7vh, 1.4rem)" }}
             >
               Jetzt mitvoten
             </p>
 
             <div
               className="bg-white rounded-2xl"
-              style={{ padding: "clamp(0.5rem, 1.2vh, 1.25rem)" }}
+              style={{ padding: "clamp(0.5rem, 1.1vh, 1.1rem)" }}
             >
               <QRCode
                 value={voteUrl}
@@ -324,15 +301,15 @@ function DisplayV2Content() {
                 level="M"
                 style={{
                   display: "block",
-                  width: isWide ? "clamp(150px, 19vw, 380px)" : "clamp(110px, 17vh, 260px)",
-                  height: isWide ? "clamp(150px, 19vw, 380px)" : "clamp(110px, 17vh, 260px)",
+                  width: isWide ? "clamp(140px, 16vw, 320px)" : "clamp(110px, 16vh, 240px)",
+                  height: isWide ? "clamp(140px, 16vw, 320px)" : "clamp(110px, 16vh, 240px)",
                 }}
               />
             </div>
 
             <p
               className="text-neutral-500 text-center break-all leading-snug"
-              style={{ fontSize: "clamp(0.6rem, 1.2vh, 1rem)" }}
+              style={{ fontSize: "clamp(0.6rem, 1.1vh, 0.95rem)" }}
             >
               {voteUrl}
             </p>

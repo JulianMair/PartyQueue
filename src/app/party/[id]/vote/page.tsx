@@ -125,6 +125,23 @@ export default function MobileVotePage({ params }: { params: Promise<{ id: strin
   const sheetOpenRef = useRef(false);
   useEffect(() => { sheetOpenRef.current = showSuggestions; }, [showSuggestions]);
 
+  // Sichtbarer Bereich laut visualViewport. Bei offener Tastatur bleibt ein
+  // `fixed inset-0`-Container auf voller Fensterhöhe stehen — das Sheet säße
+  // dann hinter der Tastatur und der Scrollbereich wäre unerreichbar.
+  const [visualViewport, setVisualViewport] = useState<{ height: number; offsetTop: number } | null>(null);
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => setVisualViewport({ height: vv.height, offsetTop: vv.offsetTop });
+    update();
+    vv.addEventListener("resize", update);
+    vv.addEventListener("scroll", update);
+    return () => {
+      vv.removeEventListener("resize", update);
+      vv.removeEventListener("scroll", update);
+    };
+  }, []);
+
   const clientId = useRef<string>("");
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -384,6 +401,9 @@ export default function MobileVotePage({ params }: { params: Promise<{ id: strin
 
   /* ── Derived state ───────────────────────────────────────────────────── */
 
+  /** Suche ist aktiv, sobald genug getippt wurde um Treffer zu zeigen. */
+  const isSearching = showSearch && searchQuery.trim().length >= 2;
+
   const myActiveSuggestion = suggestions.find((s) => s.suggestedBy === (clientId.current || getClientId()));
   const canSuggest = suggestionsEnabled && !myActiveSuggestion;
 
@@ -531,16 +551,27 @@ export default function MobileVotePage({ params }: { params: Promise<{ id: strin
 
         {/* Suggestions Bottom Sheet */}
         {showSuggestions && (
-          <div className="fixed inset-0 z-50 flex flex-col">
+          <div
+            className="fixed inset-x-0 top-0 z-50 flex flex-col"
+            style={{
+              // An den sichtbaren Bereich gekoppelt, damit das Sheet bei
+              // offener Tastatur darüber sitzt statt dahinter zu verschwinden.
+              height: visualViewport ? `${visualViewport.height}px` : "100dvh",
+              transform: visualViewport ? `translateY(${visualViewport.offsetTop}px)` : undefined,
+            }}
+          >
             <div
               className="flex-1 bg-black/60 transition-opacity duration-300"
               style={{ opacity: sheetVisible ? 1 : 0 }}
               onClick={closeSheet}
             />
             <div
-              className="bg-neutral-900 rounded-t-2xl max-h-[85dvh] flex flex-col shadow-2xl shadow-black/60"
+              className="bg-neutral-900 rounded-t-2xl flex flex-col shadow-2xl shadow-black/60"
               style={{
-                paddingBottom: "env(safe-area-inset-bottom)",
+                // Im Suchmodus mehr Platz, damit trotz Tastatur genug
+                // Ergebnisse gleichzeitig sichtbar bleiben.
+                maxHeight: showSearch ? "94%" : "85%",
+                paddingBottom: showSearch ? undefined : "env(safe-area-inset-bottom)",
                 transform: sheetVisible
                   ? `translateY(${Math.max(0, sheetDragY)}px)`
                   : "translateY(100%)",
@@ -630,7 +661,7 @@ export default function MobileVotePage({ params }: { params: Promise<{ id: strin
 
               <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 pb-3">
                 {/* Search results */}
-                {showSearch && searchQuery.length >= 2 && (
+                {isSearching && (
                   <div className="mb-4">
                     {searchLoading && (
                       <p className="text-center text-neutral-500 text-xs py-4">Suche...</p>
@@ -662,17 +693,17 @@ export default function MobileVotePage({ params }: { params: Promise<{ id: strin
                   </div>
                 )}
 
-                {/* Suggestion list */}
+                {/* Suggestion list — bei aktiver Suche ausgeblendet, sonst
+                    schiebt sie sich unter die Treffer und man scrollt an den
+                    Suchergebnissen vorbei. */}
                 {suggestions.length === 0 && !showSearch && (
                   <p className="text-center text-neutral-500 text-sm py-8">Noch keine Vorschläge</p>
                 )}
-                {suggestions.length > 0 && (
+                {suggestions.length > 0 && !isSearching && (
                   <div className="space-y-1.5">
-                    {(!showSearch || searchQuery.length < 2) && (
-                      <p className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider mb-1 px-1">
-                        {suggestions.length === 1 ? "1 Vorschlag" : `${suggestions.length} Vorschläge`}
-                      </p>
-                    )}
+                    <p className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider mb-1 px-1">
+                      {suggestions.length === 1 ? "1 Vorschlag" : `${suggestions.length} Vorschläge`}
+                    </p>
                     {suggestions.map((s) => {
                       const cid = clientId.current || getClientId();
                       const iVoted = s.votes.includes(cid);
