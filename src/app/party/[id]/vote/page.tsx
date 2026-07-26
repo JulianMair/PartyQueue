@@ -1,13 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback, use } from "react";
+import { useEffect, useRef, useState, useCallback, use, memo } from "react";
 import { PartyTrack } from "@/app/lib/providers/types";
 import type { Track } from "@/app/lib/providers/types";
 import type { SuggestionJSON } from "@/app/lib/party/PartyManager";
 
 /* ── Ticker ──────────────────────────────────────────────────────────────── */
 
-function Ticker({ text, className = "" }: { text: string; className?: string }) {
+// memo: hängt nur an text/className. Ohne das würde jeder Poll-Tick sämtliche
+// Ticker neu rendern und deren ResizeObserver erneut auslösen.
+const Ticker = memo(function Ticker({ text, className = "" }: { text: string; className?: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const [scroll, setScroll] = useState(false);
 
@@ -31,7 +33,7 @@ function Ticker({ text, className = "" }: { text: string; className?: string }) 
       ) : text}
     </div>
   );
-}
+});
 
 /* ── Client ID ───────────────────────────────────────────────────────────── */
 
@@ -60,6 +62,13 @@ function loadVotedSet(partyId: string, tracks: PartyTrack[]) {
 
 function getTop10Signature(top10: PartyTrack[]) {
   return top10.map((t) => `${t.id}:${t.votes}:${t.addedAt}`).join("|");
+}
+/** Nur die Felder, die der Footer wirklich anzeigt — progressMs bewusst nicht. */
+function getCurrentTrackSignature(track: PartyTrack | null) {
+  return track ? `${track.id}:${track.isplaying ? 1 : 0}` : "";
+}
+function getSuggestionsSignature(suggestions: SuggestionJSON[]) {
+  return suggestions.map((s) => `${s.track.id}:${s.votes.length}`).join("|");
 }
 function trackShouldComeBefore(a: PartyTrack, b: PartyTrack) {
   return a.votes > b.votes || (a.votes === b.votes && a.addedAt < b.addedAt);
@@ -90,6 +99,8 @@ export default function MobileVotePage({ params }: { params: Promise<{ id: strin
   const [pendingVoteTrackIds, setPendingVoteTrackIds] = useState<Set<string>>(new Set());
   const inFlightRef = useRef(false);
   const top10SignatureRef = useRef("");
+  const currentTrackSignatureRef = useRef("");
+  const suggestionsSignatureRef = useRef("");
   const versionRef = useRef(0);
 
   // Suggestion state
@@ -103,6 +114,16 @@ export default function MobileVotePage({ params }: { params: Promise<{ id: strin
   const [searchLoading, setSearchLoading] = useState(false);
   const [suggestPending, setSuggestPending] = useState(false);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Bottom-Sheet: Einblenden + Drag-to-dismiss
+  const [sheetVisible, setSheetVisible] = useState(false);
+  const [sheetDragY, setSheetDragY] = useState(0);
+  const [sheetDragging, setSheetDragging] = useState(false);
+  const sheetDragStartRef = useRef<number | null>(null);
+  // Vom Polling-Timer gelesen, ohne den Effect neu aufzusetzen.
+  const sheetOpenRef = useRef(false);
+  useEffect(() => { sheetOpenRef.current = showSuggestions; }, [showSuggestions]);
 
   const clientId = useRef<string>("");
   const mountedRef = useRef(true);
@@ -140,13 +161,27 @@ export default function MobileVotePage({ params }: { params: Promise<{ id: strin
         setSongs(top10);
         setVotedTrackIds(loadVotedSet(partyId, top10));
       }
-      if (data.currentTrack) setCurrentTrack(data.currentTrack);
-      else setCurrentTrack(null);
+      // currentTrack / suggestions nur bei echter Änderung neu setzen. Sonst
+      // erzeugt jeder Poll (alle 1,5 s) neue Objekt-Referenzen und rendert
+      // Liste, Footer und sämtliche Ticker neu — auch während man scrollt
+      // oder im Suchfeld tippt.
+      const ctSig = getCurrentTrackSignature(data.currentTrack ?? null);
+      if (ctSig !== currentTrackSignatureRef.current) {
+        currentTrackSignatureRef.current = ctSig;
+        setCurrentTrack(data.currentTrack ?? null);
+      }
       if (typeof data.version === "number") versionRef.current = data.version;
 
       // Suggestions
       setSuggestionsEnabled(data.suggestionsEnabled === true);
-      if (Array.isArray(data.suggestions)) setSuggestions(data.suggestions);
+      if (Array.isArray(data.suggestions)) {
+        const nextSuggestions = data.suggestions as SuggestionJSON[];
+        const sugSig = getSuggestionsSignature(nextSuggestions);
+        if (sugSig !== suggestionsSignatureRef.current) {
+          suggestionsSignatureRef.current = sugSig;
+          setSuggestions(nextSuggestions);
+        }
+      }
       if (typeof data.suggestionThreshold === "number") setSuggestionThreshold(data.suggestionThreshold);
     } catch (err) {
       console.warn("[vote/page] load error:", err);
@@ -157,7 +192,13 @@ export default function MobileVotePage({ params }: { params: Promise<{ id: strin
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
-    const run = async () => { if (cancelled) return; await load(); if (cancelled) return; timer = setTimeout(run, document.hidden ? 3500 : 1500); };
+    const nextDelay = () => {
+      if (document.hidden) return 3500;
+      // Solange das Sheet offen ist, seltener pollen: dort wird getippt und
+      // gescrollt, und Hintergrund-Updates sind währenddessen nicht dringend.
+      return sheetOpenRef.current ? 4000 : 1500;
+    };
+    const run = async () => { if (cancelled) return; await load(); if (cancelled) return; timer = setTimeout(run, nextDelay()); };
     void run();
     const onVis = () => { if (!cancelled && !document.hidden) void load(); };
     document.addEventListener("visibilitychange", onVis);
@@ -231,6 +272,9 @@ export default function MobileVotePage({ params }: { params: Promise<{ id: strin
 
   const submitSuggestion = async (track: Track) => {
     setSuggestPending(true);
+    // Tastatur sofort schließen — sonst bleibt sie über dem Ergebnis stehen
+    // und iOS behält den Fokus-Zoom bei.
+    searchInputRef.current?.blur();
     try {
       const res = await fetch("/api/party/suggest", {
         method: "POST",
@@ -271,6 +315,73 @@ export default function MobileVotePage({ params }: { params: Promise<{ id: strin
     }
   };
 
+  /* ── Bottom Sheet ────────────────────────────────────────────────────── */
+
+  const resetSearch = useCallback(() => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    searchInputRef.current?.blur();
+    setShowSearch(false);
+    setSearchQuery("");
+    setSearchResults([]);
+  }, []);
+
+  /** Nur den Zustand zurücksetzen — ohne die History anzufassen. */
+  const applySheetClosed = useCallback(() => {
+    resetSearch();
+    setShowSuggestions(false);
+    setSheetDragY(0);
+  }, [resetSearch]);
+
+  const closeSheet = useCallback(() => {
+    applySheetClosed();
+    // Eigenen History-Eintrag abräumen, sonst müsste man später mehrfach
+    // "Zurück" tippen, bevor die Seite tatsächlich verlassen wird.
+    if (window.history.state?.pqSheet) window.history.back();
+  }, [applySheetClosed]);
+
+  const openSheet = useCallback(() => {
+    // Bewusst hier und nicht in einem Effect: Effects laufen im StrictMode
+    // doppelt, was zu doppelten History-Einträgen bzw. einem sofort wieder
+    // geschlossenen Sheet führen würde.
+    window.history.pushState({ pqSheet: true }, "");
+    setShowSuggestions(true);
+  }, []);
+
+  // Erst im nächsten Frame sichtbar schalten, damit der Übergang von
+  // translateY(100%) wirklich animiert statt sofort am Ziel zu stehen.
+  useEffect(() => {
+    if (!showSuggestions) { setSheetVisible(false); return; }
+    const id = requestAnimationFrame(() => setSheetVisible(true));
+    return () => cancelAnimationFrame(id);
+  }, [showSuggestions]);
+
+  // Android-Zurück schließt das Sheet, statt die Seite zu verlassen.
+  // Dauerhaft registriert — hier darf kein history.back() stehen, sonst
+  // schließt das Sheet sich beim Öffnen selbst wieder.
+  useEffect(() => {
+    const onPop = () => applySheetClosed();
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [applySheetClosed]);
+
+  const onSheetDragStart = (e: React.TouchEvent) => {
+    sheetDragStartRef.current = e.touches[0].clientY;
+    setSheetDragging(true);
+  };
+  const onSheetDragMove = (e: React.TouchEvent) => {
+    const start = sheetDragStartRef.current;
+    if (start === null) return;
+    const dy = e.touches[0].clientY - start;
+    // Nach oben nur gedämpft mitgehen, damit das Sheet nicht über den Rand rutscht.
+    setSheetDragY(dy > 0 ? dy : dy * 0.2);
+  };
+  const onSheetDragEnd = () => {
+    sheetDragStartRef.current = null;
+    setSheetDragging(false);
+    if (sheetDragY > 90) closeSheet();
+    else setSheetDragY(0);
+  };
+
   /* ── Derived state ───────────────────────────────────────────────────── */
 
   const myActiveSuggestion = suggestions.find((s) => s.suggestedBy === (clientId.current || getClientId()));
@@ -280,9 +391,8 @@ export default function MobileVotePage({ params }: { params: Promise<{ id: strin
 
   return (
     <>
-      <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-      <meta name="theme-color" content="#0a0a0a" />
-
+      {/* viewport / theme-color liegen im Route-Layout, damit sie schon beim
+          ersten Load im <head> stehen. */}
       <div className="h-[100dvh] bg-neutral-950 text-white flex flex-col overflow-hidden">
         {/* Header */}
         <div className="flex-shrink-0 px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-2 text-center">
@@ -299,7 +409,7 @@ export default function MobileVotePage({ params }: { params: Promise<{ id: strin
         {suggestionsEnabled && (
           <div className="flex-shrink-0 px-3 pb-2">
             <button
-              onClick={() => setShowSuggestions(true)}
+              onClick={openSheet}
               className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2 bg-amber-950/30 border border-amber-800/30 active:bg-amber-950/50 transition-colors"
             >
               <span className="text-base leading-none">💡</span>
@@ -421,53 +531,104 @@ export default function MobileVotePage({ params }: { params: Promise<{ id: strin
 
         {/* Suggestions Bottom Sheet */}
         {showSuggestions && (
-          <div className="fixed inset-0 z-50 flex flex-col" onClick={() => { setShowSuggestions(false); setShowSearch(false); setSearchQuery(""); setSearchResults([]); }}>
-            <div className="flex-1 bg-black/60" />
+          <div className="fixed inset-0 z-50 flex flex-col">
             <div
-              className="bg-neutral-900 rounded-t-2xl max-h-[85dvh] flex flex-col"
-              style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
-              onClick={(e) => e.stopPropagation()}
+              className="flex-1 bg-black/60 transition-opacity duration-300"
+              style={{ opacity: sheetVisible ? 1 : 0 }}
+              onClick={closeSheet}
+            />
+            <div
+              className="bg-neutral-900 rounded-t-2xl max-h-[85dvh] flex flex-col shadow-2xl shadow-black/60"
+              style={{
+                paddingBottom: "env(safe-area-inset-bottom)",
+                transform: sheetVisible
+                  ? `translateY(${Math.max(0, sheetDragY)}px)`
+                  : "translateY(100%)",
+                transition: sheetDragging
+                  ? "none"
+                  : "transform 0.3s cubic-bezier(0.32, 0.72, 0, 1)",
+              }}
             >
-              {/* Handle */}
-              <div className="flex justify-center py-2">
-                <div className="w-10 h-1 bg-neutral-700 rounded-full" />
-              </div>
+              {/* Greifbereich: Handle runterziehen oder antippen schließt das Sheet */}
+              <div
+                onTouchStart={onSheetDragStart}
+                onTouchMove={onSheetDragMove}
+                onTouchEnd={onSheetDragEnd}
+                onTouchCancel={onSheetDragEnd}
+                className="flex-shrink-0"
+                style={{ touchAction: "none" }}
+              >
+                <button
+                  onClick={closeSheet}
+                  aria-label="Vorschläge schließen"
+                  className="w-full flex justify-center pt-3 pb-2"
+                  // touch-action muss none bleiben, sonst frisst der Browser
+                  // die vertikale Geste bevor der Drag-Handler sie sieht.
+                  style={{ touchAction: "none" }}
+                >
+                  <span className="w-10 h-1.5 bg-neutral-600 rounded-full" />
+                </button>
 
-              {/* Header */}
-              <div className="flex items-center justify-between px-4 pb-3">
-                <div>
-                  <h2 className="text-base font-semibold text-white">Vorschläge</h2>
-                  <p className="text-[11px] text-neutral-500">{suggestionThreshold} Votes zum Hinzufügen</p>
+                {/* Header */}
+                <div className="flex items-center gap-2 px-4 pb-3">
+                  {showSearch && (
+                    <button
+                      onClick={resetSearch}
+                      aria-label="Zurück zu den Vorschlägen"
+                      className="flex-shrink-0 -ml-2 w-10 h-10 flex items-center justify-center rounded-full text-neutral-300 active:bg-neutral-800"
+                    >
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M15 18l-6-6 6-6" />
+                      </svg>
+                    </button>
+                  )}
+
+                  <div className="flex-1 min-w-0">
+                    <h2 className="text-base font-semibold text-white">
+                      {showSearch ? "Song suchen" : "Vorschläge"}
+                    </h2>
+                    <p className="text-[11px] text-neutral-500">
+                      {suggestionThreshold} Votes zum Hinzufügen
+                    </p>
+                  </div>
+
+                  {canSuggest && !showSearch && (
+                    <button
+                      onClick={() => setShowSearch(true)}
+                      className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-lg bg-amber-500 text-white text-xs font-semibold active:scale-95 transition-transform"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                        <line x1="12" y1="5" x2="12" y2="19" />
+                        <line x1="5" y1="12" x2="19" y2="12" />
+                      </svg>
+                      Vorschlagen
+                    </button>
+                  )}
                 </div>
-                {canSuggest && !showSearch && (
-                  <button
-                    onClick={() => setShowSearch(true)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 text-white text-xs font-semibold active:scale-95 transition-transform"
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                      <line x1="12" y1="5" x2="12" y2="19" />
-                      <line x1="5" y1="12" x2="19" y2="12" />
-                    </svg>
-                    Vorschlagen
-                  </button>
-                )}
               </div>
 
               {/* Search area (inline in sheet) */}
               {showSearch && (
-                <div className="px-4 pb-3">
+                <div className="flex-shrink-0 px-4 pb-3">
                   <input
+                    ref={searchInputRef}
                     autoFocus
                     type="text"
+                    inputMode="search"
+                    enterKeyHint="search"
+                    autoCapitalize="off"
+                    autoCorrect="off"
                     placeholder="Song suchen..."
                     value={searchQuery}
                     onChange={(e) => onSearchInput(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-neutral-800 rounded-xl text-sm text-white placeholder:text-neutral-500 outline-none focus:ring-1 focus:ring-amber-500/50"
+                    // text-base = 16px: darunter zoomt iOS beim Fokus rein
+                    // und kehrt danach nicht zurück.
+                    className="w-full px-4 py-3 bg-neutral-800 rounded-xl text-base text-white placeholder:text-neutral-500 outline-none focus:ring-1 focus:ring-amber-500/50"
                   />
                 </div>
               )}
 
-              <div className="flex-1 min-h-0 overflow-y-auto px-3 pb-3">
+              <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 pb-3">
                 {/* Search results */}
                 {showSearch && searchQuery.length >= 2 && (
                   <div className="mb-4">

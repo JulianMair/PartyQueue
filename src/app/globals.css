@@ -5,6 +5,20 @@ html,
 body {
   height: 100%;
   overflow: hidden; /* 🚫 kein Scrollen der gesamten Seite */
+  /* iOS Safari skaliert Text sonst eigenmächtig nach Rotation/Zoom-Wechsel,
+     was die Mobile-Ansicht verzerrt zurücklässt. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* Auf Touch-Geräten zoomt iOS beim Fokus automatisch rein, wenn ein Eingabefeld
+   kleiner als 16px ist — und zoomt danach nicht zurück. */
+@media (pointer: coarse) {
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
 }
 
 :root { --footer-h: 6rem; } /* h-24 */
@@ -41,4 +55,25 @@ body {
 }
 .ticker-scroll {
   animation: ticker-scroll 8s linear infinite;
+  /* Eigene Compositing-Ebene: sonst zwingt jeder laufende Ticker den Main-Thread
+     zum Neuzeichnen der Liste, was auf schwächeren Handys ruckelt. */
+  will-change: transform;
+}
+
+/* Touch-Feedback: kein grauer Blitz beim Antippen und keine 300ms-Wartezeit,
+   bis der Browser entschieden hat, ob es ein Doppeltipp-Zoom war. */
+@media (pointer: coarse) {
+  button,
+  a,
+  [role="button"] {
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+}
+
+/* Wer Bewegung reduziert haben will, bekommt keinen Dauer-Marquee. */
+@media (prefers-reduced-motion: reduce) {
+  .ticker-scroll {
+    animation: none;
+  }
 }

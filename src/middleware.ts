@@ -11,6 +11,7 @@ const PUBLIC_API_PATHS = new Set([
   "/api/party/vote",
   "/api/party/join",
   "/api/party/display",
+  "/api/party/displayv2",
   "/api/party/suggest",
   "/api/party/suggest-vote",
   "/api/party/suggest-search",
