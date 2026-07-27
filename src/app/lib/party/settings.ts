@@ -28,6 +28,8 @@ export interface PartySettings {
   transitionProfile: TransitionProfile;
   suggestionsEnabled: boolean;
   suggestionThreshold: number;
+  /** Zeigt den aktuell laufenden Song als "Live"-Leiste auf der Voting-Seite. */
+  showNowPlaying: boolean;
 }
 
 export const DEFAULT_PARTY_SETTINGS: PartySettings = {
@@ -39,6 +41,7 @@ export const DEFAULT_PARTY_SETTINGS: PartySettings = {
   transitionProfile: "balanced",
   suggestionsEnabled: true,
   suggestionThreshold: 3,
+  showNowPlaying: true,
 };
 
 export function sanitizePartySettings(input: unknown): PartySettings {
@@ -71,5 +74,7 @@ export function sanitizePartySettings(input: unknown): PartySettings {
       20,
       Math.max(1, Number.isFinite(source.suggestionThreshold) ? Number(source.suggestionThreshold) : 3)
     ),
+    // Bestehende Partys ohne dieses Feld behalten das bisherige Verhalten (sichtbar).
+    showNowPlaying: source.showNowPlaying !== false,
   };
 }

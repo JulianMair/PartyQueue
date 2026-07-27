@@ -60,13 +60,17 @@ export default function PartyManagementSheet({
         onClick={onClose}
         aria-hidden="true"
       />
+      {/* Flex-Spalte: Kopf bleibt stehen, alles darunter scrollt in EINEM
+          Bereich. Vorher hatte die Section nur max-h ohne overflow — der
+          Inhalt lief unten heraus und die letzten Partys waren nicht
+          erreichbar. */}
       <section
-        className="absolute inset-x-0 bottom-0 max-h-[82dvh] rounded-t-2xl border border-neutral-800 bg-neutral-950 p-4 shadow-2xl sm:inset-y-0 sm:right-0 sm:left-auto sm:w-[440px] sm:max-h-none sm:rounded-none sm:rounded-l-2xl"
+        className="absolute inset-x-0 bottom-0 flex max-h-[82dvh] flex-col rounded-t-2xl border border-neutral-800 bg-neutral-950 shadow-2xl sm:inset-y-0 sm:right-0 sm:left-auto sm:w-[440px] sm:max-h-none sm:rounded-none sm:rounded-l-2xl"
         role="dialog"
         aria-modal="true"
         aria-label="Party Verwaltung"
       >
-        <div className="mb-3 flex items-center justify-between gap-3 border-b border-neutral-800 pb-3">
+        <div className="flex flex-shrink-0 items-center justify-between gap-3 border-b border-neutral-800 px-4 pb-3 pt-4">
           <div>
             <h3 className="text-lg font-semibold text-white">Party Verwaltung</h3>
             <p className="text-xs text-gray-400">
@@ -81,7 +85,7 @@ export default function PartyManagementSheet({
           </button>
         </div>
 
-        <div className="space-y-3">
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
           <div className="flex gap-2">
             <input
               value={newPartyName}
@@ -224,6 +228,28 @@ export default function PartyManagementSheet({
             </label>
 
             <div className="border-t border-neutral-800 pt-3 mt-1">
+              <p className="text-sm font-medium text-gray-100 mb-2">Voting-Seite</p>
+
+              <label className="flex items-center justify-between gap-3">
+                <span className="text-sm text-gray-300">Aktuellen Song anzeigen</span>
+                <input
+                  type="checkbox"
+                  checked={pendingSettings.showNowPlaying}
+                  onChange={(e) =>
+                    onPendingSettingsChange({
+                      ...pendingSettings,
+                      showNowPlaying: e.target.checked,
+                    })
+                  }
+                  className="h-4 w-4 accent-green-500"
+                />
+              </label>
+              <span className="text-[11px] text-gray-500 mt-0.5 block">
+                Live-Leiste am unteren Rand der mobilen Voting-Ansicht
+              </span>
+            </div>
+
+            <div className="border-t border-neutral-800 pt-3 mt-1">
               <p className="text-sm font-medium text-gray-100 mb-2">Song-Vorschläge</p>
 
               <label className="flex items-center justify-between gap-3">
@@ -277,7 +303,9 @@ export default function PartyManagementSheet({
             {saveMessage && <p className="text-xs text-gray-400">{saveMessage}</p>}
           </div>
 
-          <div className="max-h-[55dvh] space-y-2 overflow-y-auto pr-1 sm:max-h-[calc(100dvh-210px)]">
+          {/* Kein eigener Scroller mehr — die Liste scrollt mit dem Sheet.
+              Verschachtelte Scrollbereiche fühlen sich auf Touch träge an. */}
+          <div className="space-y-2">
             {parties.length === 0 ? (
               <p className="rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-gray-500">
                 Keine gespeicherten Partys

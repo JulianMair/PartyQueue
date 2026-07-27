@@ -457,7 +457,15 @@ export default function MobileVotePage({ params }: { params: Promise<{ id: strin
         )}
 
         {/* Song List */}
-        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 pb-[calc(5.5rem+env(safe-area-inset-bottom))]">
+        {/* Unteres Padding nur reservieren, solange die Live-Leiste wirklich
+            angezeigt wird — sonst bleibt am Ende der Liste eine Lücke. */}
+        <div
+          className={`flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 ${
+            currentTrack
+              ? "pb-[calc(5.5rem+env(safe-area-inset-bottom))]"
+              : "pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+          }`}
+        >
 
           {songs.length === 0 && !error && (
             <div className="flex flex-col items-center justify-center h-full text-neutral-500">
