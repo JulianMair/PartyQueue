@@ -86,6 +86,38 @@ export function appendPlayedEntry(
 }
 
 /**
+ * Gibt die letzten n Einträge der Historie zurück (Story A2).
+ *
+ * Gedacht für die spätere Profilberechnung, die nicht den ganzen Abend
+ * gleich gewichten soll, sondern ein Fenster der zuletzt gespielten Titel
+ * betrachtet.
+ *
+ * Die Reihenfolge bleibt chronologisch, ältester der ausgewählten Titel
+ * zuerst — so wie die Historie selbst aufgebaut ist. Wer zeitlich gewichten
+ * will, braucht die Abfolge in dieser Richtung.
+ *
+ * Unsinnige Eingaben liefern eine leere Liste statt eines Fehlers: ein
+ * fehlender Verlauf soll die Party nicht zum Stehen bringen. Ist n größer
+ * als die vorhandene Anzahl, kommt einfach alles zurück.
+ *
+ * Das Ergebnis ist ein neues Array. Wer daran etwas anhängt oder entfernt,
+ * verändert die Historie nicht. Die Einträge selbst werden geteilt und
+ * daher nirgends im Code nachträglich geändert.
+ */
+export function takeRecentPlayed(
+  history: PlayedTrackEntry[],
+  n: number
+): PlayedTrackEntry[] {
+  if (!Array.isArray(history) || history.length === 0) return [];
+  // Number.isFinite faengt neben Text auch NaN und Infinity ab.
+  if (!Number.isFinite(n) || n <= 0) return [];
+
+  // Nachkommastellen abschneiden und nie mehr verlangen als vorhanden ist.
+  const count = Math.min(Math.floor(n), history.length);
+  return history.slice(history.length - count);
+}
+
+/**
  * Liest die Historie aus gespeicherten Daten zurück.
  *
  * Der Wert kommt aus der Datenbank und ist damit nichts, worauf wir uns

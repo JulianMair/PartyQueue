@@ -75,6 +75,7 @@ _(leer)_
 
 ### In Review  (WIP Limit: 2)
 - A1 · Gespielte Titel erfassen · 3 SP
+- A2 · Stimmungsverlauf bereitstellen · 2 SP
 
 ### Done
 _(leer)_
@@ -85,4 +86,5 @@ _(leer)_
 
 | Datum | Erledigt | Nächster Schritt | Hindernis |
 |-------|----------|------------------|-----------|
-| 2026-09-05 | A1 gebaut: Historie gespielter Titel mit Zeitstempel, im Party-State gespeichert. Reine Logik mit 14 Prüfungen abgesichert. | A1 durch PO prüfen lassen, danach nächste Karte aus Ready. | Dev-Server erreicht MongoDB nicht (Server-Discovery scheitert über VPN, Direktverbindung klappt). Persistenz daher nur strukturell geprüft, nicht im Betrieb. |
+| 2026-09-05 | A1 gebaut: Historie gespielter Titel mit Zeitstempel, im Party-State gespeichert. Reine Logik mit 14 Prüfungen abgesichert. | A1 prüfen lassen, danach nächste Karte aus Ready. | Dev-Server erreicht MongoDB nicht (Server-Discovery scheitert über VPN, Direktverbindung klappt). Persistenz daher nur strukturell geprüft, nicht im Betrieb. |
+| 2026-09-05 | A2 gebaut: Abruf der letzten N Titel als reine Funktion plus Lese-Methode am PartyManager. 15 Prüfungen inkl. Grenzfälle. | A1 und A2 prüfen lassen. In Review ist damit voll (WIP 2). | DB weiterhin nur per Direktverbindung erreichbar, daher kein Betriebstest. |

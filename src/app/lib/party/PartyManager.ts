@@ -6,6 +6,7 @@ import {
   appendPlayedEntry,
   makePlayedEntry,
   sanitizePlayedHistory,
+  takeRecentPlayed,
   type PlayedTrackEntry,
 } from "./playedHistory";
 
@@ -154,6 +155,15 @@ export class PartyManager extends EventEmitter {
    */
   getPlayedTracks(): PlayedTrackEntry[] {
     return [...this.playedTracks];
+  }
+
+  /**
+   * Gibt die zuletzt gespielten n Titel dieser Party zurück, ältester zuerst
+   * (Story A2). Grundlage für die spätere Profilberechnung, die nur ein
+   * Fenster der jüngsten Titel betrachtet statt des gesamten Abends.
+   */
+  getRecentPlayedTracks(n: number): PlayedTrackEntry[] {
+    return takeRecentPlayed(this.playedTracks, n);
   }
 
   /**
