@@ -2,6 +2,12 @@
 import EventEmitter from "events";
 import { MusicProvider, Track, PartyTrack } from "../providers/types";
 import type { TransitionProfile } from "./settings";
+import {
+  appendPlayedEntry,
+  makePlayedEntry,
+  sanitizePlayedHistory,
+  type PlayedTrackEntry,
+} from "./playedHistory";
 
 export interface Suggestion {
   track: PartyTrack;
@@ -24,6 +30,13 @@ export interface PartyState {
   isActive: boolean;
   version: number;
   suggestions?: SuggestionJSON[];
+  /**
+   * Chronologische Liste der gespielten Titel (ältester zuerst).
+   * Teil des States, damit sie zusammen mit der Party gespeichert wird und
+   * einen Neustart des Servers übersteht. Optional, weil ältere
+   * Party-Dokumente dieses Feld noch nicht haben.
+   */
+  playedTracks?: PlayedTrackEntry[];
 }
 
 export type VoteResultStatus =
@@ -46,6 +59,12 @@ export class PartyManager extends EventEmitter {
   private voted: Map<string, Set<string>> = new Map();
   private suggestions: Map<string, Suggestion> = new Map(); // trackId -> Suggestion
   private playedTrackIds: Set<string> = new Set();
+  /**
+   * Gespielte Titel mit Zeitstempel, ältester zuerst (Story A1).
+   * Ergänzt playedTrackIds: das Set beantwortet "schon gelaufen?",
+   * diese Liste zusätzlich "wann und in welcher Reihenfolge?".
+   */
+  private playedTracks: PlayedTrackEntry[] = [];
   private suggestionThreshold = 3;
   private fadeDurationSeconds = 0;
   private transitionProfile: TransitionProfile = "balanced";
@@ -94,6 +113,15 @@ export class PartyManager extends EventEmitter {
         ])
       );
     }
+    // Gespeicherte Historie zurücklesen. sanitizePlayedHistory verträgt
+    // fehlende oder kaputte Daten und liefert dann eben eine kürzere Liste.
+    this.playedTracks = sanitizePlayedHistory(initialState?.playedTracks);
+    // Das ID-Set aus der Historie wieder aufbauen, damit die vorhandene
+    // Wiederholungs-Vermeidung nach einem Neustart weiterhin greift.
+    for (const entry of this.playedTracks) {
+      this.playedTrackIds.add(entry.trackId);
+    }
+
     if (initialState?.currentTrack?.id) {
       this.playedTrackIds.add(initialState.currentTrack.id);
     }
@@ -114,7 +142,39 @@ export class PartyManager extends EventEmitter {
     return {
       ...this.state,
       suggestions: this.getSuggestionsJSON(),
+      // Mitliefern, damit die Historie beim Speichern der Party mitgeschrieben
+      // wird — der Aufrufer nimmt getState() als Snapshot für die Datenbank.
+      playedTracks: this.playedTracks,
     };
+  }
+
+  /**
+   * Gibt die gespielten Titel zurück, ältester zuerst.
+   * Als Kopie, damit Aufrufer die interne Liste nicht versehentlich ändern.
+   */
+  getPlayedTracks(): PlayedTrackEntry[] {
+    return [...this.playedTracks];
+  }
+
+  /**
+   * Vermerkt, dass ein Titel gerade zu spielen begonnen hat.
+   *
+   * Wird an jeder Stelle aufgerufen, an der ein Titel zum currentTrack wird —
+   * egal ob durch die eigene Warteschlange oder weil Spotify von sich aus
+   * gewechselt hat. Titel, deren Start fehlschlägt, laufen hier bewusst
+   * nicht durch: sie wurden nie gehört und gehören nicht in die Historie.
+   */
+  private recordPlayed(track: { id?: string; name?: string; artist?: string }) {
+    if (!track?.id) return;
+    this.playedTrackIds.add(track.id);
+    this.playedTracks = appendPlayedEntry(
+      this.playedTracks,
+      makePlayedEntry({
+        id: track.id,
+        name: track.name ?? "",
+        artist: track.artist ?? "",
+      })
+    );
   }
 
   getVotedByClient() {
@@ -725,7 +785,7 @@ export class PartyManager extends EventEmitter {
 
     const commitTransition = () => {
       this.state.currentTrack = next;
-      this.playedTrackIds.add(next.id);
+      this.recordPlayed(next);
       this.voted.forEach((tracks) => tracks.delete(next.id));
       if (votingTailCandidateId && votingTailCandidateId !== next.id) {
         this.removeTrackByIdSilently(votingTailCandidateId);
@@ -898,7 +958,7 @@ export class PartyManager extends EventEmitter {
     if (!next) return false;
 
     this.state.currentTrack = next;
-    this.playedTrackIds.add(next.id);
+    this.recordPlayed(next);
     this.voted.forEach((tracks) => tracks.delete(next.id));
     if (votingTailCandidateId && votingTailCandidateId !== next.id) {
       this.removeTrackByIdSilently(votingTailCandidateId);
@@ -1043,7 +1103,7 @@ export class PartyManager extends EventEmitter {
               addedAt: Date.now(),
             };
             this.state.currentTrack = externalTrack;
-            if (externalTrack.id) this.playedTrackIds.add(externalTrack.id);
+            this.recordPlayed(externalTrack);
             this.bumpVersion();
             this.emit("trackStarted", externalTrack);
             this.emit("stateChanged", this.state);
@@ -1062,9 +1122,7 @@ export class PartyManager extends EventEmitter {
             };
 
             this.state.currentTrack = newTrack;
-            if (newTrack.id) {
-              this.playedTrackIds.add(newTrack.id);
-            }
+            this.recordPlayed(newTrack);
 
             this.bumpVersion();
             this.emit("trackStarted", newTrack);
