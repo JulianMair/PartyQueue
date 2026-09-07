@@ -69,7 +69,23 @@ export interface AudioFeatures {
   danceability: number;
   /** Grundstimmung von düster (0) bis fröhlich (1). */
   valence: number;
+  /** Woher die Werte stammen — siehe AudioFeatureSource. */
+  source: AudioFeatureSource;
 }
+
+/**
+ * Herkunft der Merkmale (Story B2).
+ *
+ * "measured"  — von einem Dienst ermittelt, der den Titel tatsächlich
+ *               analysiert hat.
+ * "estimated" — aus den Genres der Künstler geschätzt, weil der Dienst
+ *               nichts liefern konnte. Brauchbar, aber ungenauer.
+ *
+ * Der Unterschied ist wichtig, wenn später eine Empfehlung unpassend
+ * wirkt: dann lässt sich unterscheiden, ob echte Werte danebenlagen oder
+ * nur eine Schätzung im Spiel war.
+ */
+export type AudioFeatureSource = "measured" | "estimated";
 
 /**
  * Anbieter für Audio-Merkmale.

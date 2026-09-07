@@ -106,7 +106,22 @@ function parseAudioFeatures(raw: unknown): AudioFeatures | null {
   if (tempo === null || energy === null || danceability === null || valence === null) {
     return null;
   }
-  return { tempo, energy, danceability, valence };
+  // "measured": diese Werte stammen aus einer echten Analyse des Titels,
+  // im Gegensatz zu den geschaetzten Werten des Rueckfallverfahrens.
+  return { tempo, energy, danceability, valence, source: "measured" };
+}
+
+/**
+ * Ist ReccoBeats eingeschaltet? (Story B2)
+ *
+ * Über RECCOBEATS_ENABLED=false lässt sich der Dienst abschalten, ohne
+ * Code zu ändern. Das dient zwei Zwecken: einen Ausfall nachstellen, um
+ * das Rückfallverfahren zu prüfen, und im Betrieb notfalls umschalten,
+ * falls der Dienst dauerhaft Probleme macht.
+ */
+export function isReccoBeatsEnabled(): boolean {
+  const value = (process.env.RECCOBEATS_ENABLED ?? "true").trim().toLowerCase();
+  return value !== "false" && value !== "0" && value !== "no";
 }
 
 export class ReccoBeatsProvider implements AudioFeatureProvider {

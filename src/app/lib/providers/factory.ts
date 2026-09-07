@@ -1,5 +1,7 @@
 import { SpotifyProvider } from "./spotify/index";
-import { ReccoBeatsProvider } from "./reccobeats/index";
+import { SpotifyFallbackFeatureProvider } from "./spotify/audioFeatures";
+import { ReccoBeatsProvider, isReccoBeatsEnabled } from "./reccobeats/index";
+import { AudioFeatureChain } from "./audioFeatureChain";
 import { AudioFeatureProvider, MusicProvider } from "./types";
 
 export function getProvider(providerName: string): MusicProvider {
@@ -29,10 +31,22 @@ let audioFeatureProvider: AudioFeatureProvider | null = null;
  * Quellen kommen: die Musik von Spotify, die Merkmale von ReccoBeats.
  * Der aufrufende Code sieht nur die Schnittstelle und muss nicht wissen,
  * wer dahinter antwortet.
+ *
+ * Zurückgegeben wird eine Kette (Story B2): zuerst ReccoBeats mit echten
+ * Messwerten, danach das Rückfallverfahren, das aus Spotify-Genres
+ * schätzt. Hier ist die einzige Stelle, an der die Reihenfolge steht.
+ *
+ * Ist ReccoBeats über RECCOBEATS_ENABLED=false abgeschaltet, besteht die
+ * Kette nur aus dem Rückfallverfahren.
  */
 export function getAudioFeatureProvider(): AudioFeatureProvider {
   if (!audioFeatureProvider) {
-    audioFeatureProvider = new ReccoBeatsProvider();
+    const providers: AudioFeatureProvider[] = [];
+    if (isReccoBeatsEnabled()) {
+      providers.push(new ReccoBeatsProvider());
+    }
+    providers.push(new SpotifyFallbackFeatureProvider());
+    audioFeatureProvider = new AudioFeatureChain(providers);
   }
   return audioFeatureProvider;
 }
