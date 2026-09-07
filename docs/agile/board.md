@@ -74,11 +74,11 @@ _(leer)_
 _(leer)_
 
 ### In Review  (WIP Limit: 2)
-- A1 · Gespielte Titel erfassen · 3 SP
-- A2 · Stimmungsverlauf bereitstellen · 2 SP
+- B1 · Audio-Merkmale über austauschbaren Provider · 5 SP
 
 ### Done
-_(leer)_
+- A1 · Gespielte Titel erfassen · 3 SP
+- A2 · Stimmungsverlauf bereitstellen · 2 SP
 
 ---
 
@@ -88,3 +88,4 @@ _(leer)_
 |-------|----------|------------------|-----------|
 | 2026-09-05 | A1 gebaut: Historie gespielter Titel mit Zeitstempel, im Party-State gespeichert. Reine Logik mit 14 Prüfungen abgesichert. | A1 prüfen lassen, danach nächste Karte aus Ready. | Dev-Server erreicht MongoDB nicht (Server-Discovery scheitert über VPN, Direktverbindung klappt). Persistenz daher nur strukturell geprüft, nicht im Betrieb. |
 | 2026-09-05 | A2 gebaut: Abruf der letzten N Titel als reine Funktion plus Lese-Methode am PartyManager. 15 Prüfungen inkl. Grenzfälle. | A1 und A2 prüfen lassen. In Review ist damit voll (WIP 2). | DB weiterhin nur per Direktverbindung erreichbar, daher kein Betriebstest. |
+| 2026-09-05 | B1 gebaut: ReccoBeats als Merkmals-Anbieter unter providers/reccobeats/, Schnittstelle in types.ts, Auswahl über die bestehende factory.ts. Zwischenspeicher im Arbeitsspeicher. 13 Prüfungen gegen die echte API. | B1 prüfen lassen, danach B2 (Rückfallverfahren) aus Ready. | Merkmale werden einzeln geholt (die API bietet dafür keine Sammelabfrage), rund 0,5 s pro neuem Titel. Mit Zwischenspeicher unkritisch, bei leerem Speicher aber spürbar. |
