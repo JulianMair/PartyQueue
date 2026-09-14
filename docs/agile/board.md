@@ -70,15 +70,16 @@ Startzustand. Beim Arbeiten verschiebst du die Karten zwischen den Spalten.
 _(leer)_
 
 ### In Progress  (WIP Limit: 1)
-- C1 · Party Profil berechnen · 5 SP _(gebaut, siehe Hinweis unten — wartet wegen WIP Limit In Review auf Freigabe)_
+_(leer)_
 
 ### In Review  (WIP Limit: 2)
-- B1 · Audio-Merkmale über austauschbaren Provider · 5 SP
-- B2 · Rückfallverfahren bei Ausfall · 5 SP
+- C1 · Party Profil berechnen · 5 SP
 
 ### Done
 - A1 · Gespielte Titel erfassen · 3 SP
 - A2 · Stimmungsverlauf bereitstellen · 2 SP
+- B1 · Audio-Merkmale über austauschbaren Provider · 5 SP
+- B2 · Rückfallverfahren bei Ausfall · 5 SP
 
 ---
 
@@ -91,3 +92,4 @@ _(leer)_
 | 2026-09-05 | B1 gebaut: ReccoBeats als Merkmals-Anbieter unter providers/reccobeats/, Schnittstelle in types.ts, Auswahl über die bestehende factory.ts. Zwischenspeicher im Arbeitsspeicher. 13 Prüfungen gegen die echte API. | B1 prüfen lassen, danach B2 (Rückfallverfahren) aus Ready. | Merkmale werden einzeln geholt (die API bietet dafür keine Sammelabfrage), rund 0,5 s pro neuem Titel. Mit Zwischenspeicher unkritisch, bei leerem Speicher aber spürbar. |
 | 2026-09-05 | B2 gebaut: Rückfallverfahren, das Merkmale aus Künstler-Genres schätzt, plus Verkettung der Anbieter. Herkunft (gemessen/geschätzt) steht am Ergebnis. 14 Prüfungen. | B1 und B2 prüfen lassen. In Review ist damit voll. | Der Rückfall-Anbieter selbst lief nur in Einzelteilen geprüft: er hängt über auth.ts am Next.js-Kontext und startet außerhalb davon nicht. |
 | 2026-09-14 | C1 gebaut: reine Funktion `computePartyProfile` (partyProfile.ts) berechnet aus gespielten Titeln ein zeitgewichtetes Profil (tempo/energy/danceability/valence), exponentieller Zerfall mit 15 Min. Halbwertszeit, ab 5 Titeln mit Merkmalen. PartyManager holt dafür die Merkmale der letzten 30 gespielten Titel über die bestehende Anbieter-Kette und rechnet nach jedem gestarteten Titel neu (Hintergrund, nicht blockierend). 9 Prüfungen. | C1 prüfen lassen. Karte bleibt bewusst in In Progress statt In Review, weil In Review mit B1/B2 schon voll ist (WIP Limit 2) — siehe Hindernis. | In Review ist mit B1 und B2 bereits am WIP Limit (2). C1 fertig, aber noch nicht einsortiert — Julian entscheidet: B1/B2 zuerst nach Done, oder Limit für diesen Fall anheben. |
+| 2026-09-14 | Entscheid: B1 und B2 nach eigener Prüfung nach Done verschoben, damit C1 regulär nach In Review kann. | C1 prüfen lassen, danach nächste Karte aus Backlog nach Ready holen. | — |
