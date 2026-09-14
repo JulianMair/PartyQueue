@@ -62,13 +62,13 @@ Startzustand. Beim Arbeiten verschiebst du die Karten zwischen den Spalten.
 - G1 · Technische Dokumentation · 3 SP
 
 ### Ready
-E1 · Trend auf dem Display zeigen · 3 SP
+_(leer)_
 
 ### In Progress  (WIP Limit: 1)
 _(leer)_
 
 ### In Review  (WIP Limit: 2)
-_(leer)_
+- E1 · Trend auf dem Display zeigen · 3 SP
 
 ### Done
 - A1 · Gespielte Titel erfassen · 3 SP
@@ -93,3 +93,4 @@ _(leer)_
 | 2026-09-14 | C1 nach eigener Prüfung nach Done verschoben. | C2 (Trend ableiten) aus Ready starten. | — |
 | 2026-09-14 | C2 gebaut: reine Funktion `computePartyTrend` (partyTrend.ts) vergleicht Durchschnitt der letzten 6 Titel gegen den Gesamtdurchschnitt der Session, liefert Drift je Dimension plus ein Label ("wird energischer" etc.), erst ab 10 Titeln mit Merkmalen. PartyManager berechnet Profil und Trend zusammen, keine zusätzlichen Netzwerkrufe. 10 Prüfungen. | C2 prüfen lassen. | — |
 | 2026-09-14 | C2 nach eigener Prüfung nach Done verschoben. | E1 (Trend auf dem Display zeigen) aus Ready starten. | — |
+| 2026-09-14 | E1 gebaut: `/api/party/display` liefert zusätzlich `trend: {label} \| null` (nur das Label, keine Rohwerte). `/display`-Seite zeigt bei vorhandenem Trend einen kleinen Chip neben "Aktueller Song". `/displayv2` (Charts-Ansicht) bewusst nicht angefasst. | E1 prüfen lassen. | ESLint lief nicht durch (vorbestehendes Config-Problem, fehlendes react-hooks-Plugin, unabhängig von dieser Story) — Typprüfung über tsc stattdessen. |

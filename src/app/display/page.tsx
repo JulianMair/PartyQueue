@@ -14,6 +14,9 @@ interface DisplayData {
   isActive: boolean;
   currentTrack: PartyTrack | null;
   queue: PartyTrack[];
+  // Story E1: nur gesetzt, wenn genug Titel gespielt wurden, um einen
+  // Trend zu erkennen (Story C2). Sonst null — dann wird nichts angezeigt.
+  trend?: { label: string } | null;
   serverTime?: number;
 }
 
@@ -347,9 +350,18 @@ function AutoDisplayContent() {
         <div className={`flex-1 flex flex-col ${mainPadding} min-w-0`}>
           {/* Now Playing */}
           <div className={nowPlayingMargin}>
-            <h2 className="text-neutral-500 text-sm font-semibold uppercase tracking-widest mb-4">
-              Aktueller Song
-            </h2>
+            <div className="flex items-center gap-3 mb-4">
+              <h2 className="text-neutral-500 text-sm font-semibold uppercase tracking-widest">
+                Aktueller Song
+              </h2>
+              {/* Story E1: Trend nur zeigen, wenn genug Daten für ein
+                  verlässliches Signal da sind (siehe computePartyTrend). */}
+              {data?.trend && (
+                <span className="text-xs font-medium text-emerald-400 bg-emerald-500/10 rounded-full px-2.5 py-1">
+                  {data.trend.label}
+                </span>
+              )}
+            </div>
 
             {ct ? (
               <div className={`flex items-center ${compactSizing ? "gap-4" : "gap-6"}`}>
