@@ -55,7 +55,6 @@ Startzustand. Beim Arbeiten verschiebst du die Karten zwischen den Spalten.
 - A1 · Gespielte Titel erfassen · 3 SP
 - A2 · Stimmungsverlauf bereitstellen · 2 SP
 - C1 · Party Profil berechnen · 5 SP
-- C2 · Trend ableiten · 5 SP
 - E1 · Trend auf dem Display zeigen · 3 SP
 - D1 · Kandidaten erzeugen · 5 SP
 - D2 · Kandidaten ranken · 5 SP
@@ -67,7 +66,7 @@ Startzustand. Beim Arbeiten verschiebst du die Karten zwischen den Spalten.
 - G1 · Technische Dokumentation · 3 SP
 
 ### Ready
-_(leer)_
+C2 · Trend ableiten · 5 SP
 
 ### In Progress  (WIP Limit: 1)
 _(leer)_
