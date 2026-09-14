@@ -63,13 +63,13 @@ Startzustand. Beim Arbeiten verschiebst du die Karten zwischen den Spalten.
 - G1 · Technische Dokumentation · 3 SP
 
 ### Ready
-C2 · Trend ableiten · 5 SP
+_(leer)_
 
 ### In Progress  (WIP Limit: 1)
 _(leer)_
 
 ### In Review  (WIP Limit: 2)
-_(leer)_
+- C2 · Trend ableiten · 5 SP
 
 ### Done
 - A1 · Gespielte Titel erfassen · 3 SP
@@ -91,3 +91,4 @@ _(leer)_
 | 2026-09-14 | C1 gebaut: reine Funktion `computePartyProfile` (partyProfile.ts) berechnet aus gespielten Titeln ein zeitgewichtetes Profil (tempo/energy/danceability/valence), exponentieller Zerfall mit 15 Min. Halbwertszeit, ab 5 Titeln mit Merkmalen. PartyManager holt dafür die Merkmale der letzten 30 gespielten Titel über die bestehende Anbieter-Kette und rechnet nach jedem gestarteten Titel neu (Hintergrund, nicht blockierend). 9 Prüfungen. | C1 prüfen lassen. Karte bleibt bewusst in In Progress statt In Review, weil In Review mit B1/B2 schon voll ist (WIP Limit 2) — siehe Hindernis. | In Review ist mit B1 und B2 bereits am WIP Limit (2). C1 fertig, aber noch nicht einsortiert — Julian entscheidet: B1/B2 zuerst nach Done, oder Limit für diesen Fall anheben. |
 | 2026-09-14 | Entscheid: B1 und B2 nach eigener Prüfung nach Done verschoben, damit C1 regulär nach In Review kann. | C1 prüfen lassen, danach nächste Karte aus Backlog nach Ready holen. | — |
 | 2026-09-14 | C1 nach eigener Prüfung nach Done verschoben. | C2 (Trend ableiten) aus Ready starten. | — |
+| 2026-09-14 | C2 gebaut: reine Funktion `computePartyTrend` (partyTrend.ts) vergleicht Durchschnitt der letzten 6 Titel gegen den Gesamtdurchschnitt der Session, liefert Drift je Dimension plus ein Label ("wird energischer" etc.), erst ab 10 Titeln mit Merkmalen. PartyManager berechnet Profil und Trend zusammen, keine zusätzlichen Netzwerkrufe. 10 Prüfungen. | C2 prüfen lassen. | — |

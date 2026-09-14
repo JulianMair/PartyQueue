@@ -74,8 +74,12 @@ export interface PartyProfileInputEntry {
   playedAt: number;
 }
 
-/** Rechnet Tempo in BPM auf eine 0..1 Skala um, robust gegen Unsinnswerte. */
-function normalizeTempo(tempo: number): number {
+/**
+ * Rechnet Tempo in BPM auf eine 0..1 Skala um, robust gegen Unsinnswerte.
+ * Exportiert, damit partyTrend.ts (Story C2) dieselbe Normierung verwendet
+ * statt sie ein zweites Mal zu definieren.
+ */
+export function normalizeTempo(tempo: number): number {
   if (!Number.isFinite(tempo) || tempo <= 0) return 0;
   return Math.min(1, tempo / TEMPO_NORMALIZATION_MAX);
 }

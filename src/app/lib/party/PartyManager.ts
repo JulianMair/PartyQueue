@@ -11,6 +11,7 @@ import {
   type PlayedTrackEntry,
 } from "./playedHistory";
 import { computePartyProfile, type PartyProfile } from "./partyProfile";
+import { computePartyTrend, type PartyTrend } from "./partyTrend";
 
 /**
  * Wie viele der zuletzt gespielten Titel für die Profilberechnung
@@ -26,7 +27,7 @@ export interface Suggestion {
   track: PartyTrack;
   suggestedBy: string; // clientId
   votes: Set<string>; // clientIds that voted for this suggestion
-  createdAt: number;
+  createdAt: number;  
 }
 
 export interface SuggestionJSON {
@@ -84,6 +85,12 @@ export class PartyManager extends EventEmitter {
    * es lässt sich aus playedTracks jederzeit neu berechnen.
    */
   private partyProfile: PartyProfile | null = null;
+  /**
+   * Stimmungstrend (Story C2): "gerade eben" verglichen mit dem
+   * Gesamtdurchschnitt der Session. Wird zusammen mit partyProfile
+   * neu berechnet, ebenfalls nicht persistiert.
+   */
+  private partyTrend: PartyTrend | null = null;
   private suggestionThreshold = 3;
   private fadeDurationSeconds = 0;
   private transitionProfile: TransitionProfile = "balanced";
@@ -199,18 +206,29 @@ export class PartyManager extends EventEmitter {
   }
 
   /**
-   * Berechnet das Party-Profil neu.
+   * Gibt den aktuellen Stimmungstrend zurück (Story C2), oder null, solange
+   * noch nicht genug Titel mit bekannten Merkmalen gespielt wurden.
+   */
+  getPartyTrend(): PartyTrend | null {
+    return this.partyTrend;
+  }
+
+  /**
+   * Berechnet Party-Profil und Stimmungstrend neu.
    *
    * Holt zu den zuletzt gespielten Titeln die Audio-Merkmale über die
    * bestehende Anbieter-Kette (Story B1/B2 — ReccoBeats mit Zwischenspeicher,
-   * sonst Schätzung aus Spotify-Genres) und übergibt sie der reinen
-   * Rechenfunktion in partyProfile.ts.
+   * sonst Schätzung aus Spotify-Genres) und übergibt sie den reinen
+   * Rechenfunktionen in partyProfile.ts und partyTrend.ts. Beide nutzen
+   * dieselbe einmal geholte Merkmalsliste — der Trend verursacht also
+   * keine zusätzlichen Netzwerkrufe.
    *
    * Läuft bewusst unabhängig vom Aufrufer (nicht awaited von recordPlayed):
    * ein Netzwerkruf hier darf das eigentliche "Titel gestartet"-Ereignis
-   * nicht verzögern. Schlägt die Berechnung fehl, bleibt das zuletzt
-   * bekannte Profil stehen statt auf null zurückzufallen — ein einzelner
-   * Fehlversuch soll kein bereits brauchbares Profil wegwerfen.
+   * nicht verzögern. Schlägt die Berechnung fehl, bleiben Profil und Trend
+   * auf dem zuletzt bekannten Stand stehen statt auf null zurückzufallen —
+   * ein einzelner Fehlversuch soll kein bereits brauchbares Ergebnis
+   * wegwerfen.
    */
   private async recomputePartyProfile(): Promise<void> {
     const recent = takeRecentPlayed(this.playedTracks, PARTY_PROFILE_WINDOW);
@@ -228,6 +246,7 @@ export class PartyManager extends EventEmitter {
       }));
 
       this.partyProfile = computePartyProfile(inputs);
+      this.partyTrend = computePartyTrend(inputs);
     } catch (error) {
       console.warn("[party-profile] Neuberechnung fehlgeschlagen:", error);
     }
