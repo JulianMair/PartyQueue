@@ -52,7 +52,6 @@ Summe: 15 Stories, 56 Story Points. Prio ist Planung, keine Zusage. Die tatsäch
 Startzustand. Beim Arbeiten verschiebst du die Karten zwischen den Spalten.
 
 ### Backlog
-- E1 · Trend auf dem Display zeigen · 3 SP
 - D1 · Kandidaten erzeugen · 5 SP
 - D2 · Kandidaten ranken · 5 SP
 - D3 · Automatisches Auffüllen · 3 SP
@@ -63,13 +62,13 @@ Startzustand. Beim Arbeiten verschiebst du die Karten zwischen den Spalten.
 - G1 · Technische Dokumentation · 3 SP
 
 ### Ready
-_(leer)_
+E1 · Trend auf dem Display zeigen · 3 SP
 
 ### In Progress  (WIP Limit: 1)
 _(leer)_
 
 ### In Review  (WIP Limit: 2)
-- C2 · Trend ableiten · 5 SP
+_(leer)_
 
 ### Done
 - A1 · Gespielte Titel erfassen · 3 SP
@@ -77,6 +76,7 @@ _(leer)_
 - B1 · Audio-Merkmale über austauschbaren Provider · 5 SP
 - B2 · Rückfallverfahren bei Ausfall · 5 SP
 - C1 · Party Profil berechnen · 5 SP
+- C2 · Trend ableiten · 5 SP
 
 ---
 
@@ -92,3 +92,4 @@ _(leer)_
 | 2026-09-14 | Entscheid: B1 und B2 nach eigener Prüfung nach Done verschoben, damit C1 regulär nach In Review kann. | C1 prüfen lassen, danach nächste Karte aus Backlog nach Ready holen. | — |
 | 2026-09-14 | C1 nach eigener Prüfung nach Done verschoben. | C2 (Trend ableiten) aus Ready starten. | — |
 | 2026-09-14 | C2 gebaut: reine Funktion `computePartyTrend` (partyTrend.ts) vergleicht Durchschnitt der letzten 6 Titel gegen den Gesamtdurchschnitt der Session, liefert Drift je Dimension plus ein Label ("wird energischer" etc.), erst ab 10 Titeln mit Merkmalen. PartyManager berechnet Profil und Trend zusammen, keine zusätzlichen Netzwerkrufe. 10 Prüfungen. | C2 prüfen lassen. | — |
+| 2026-09-14 | C2 nach eigener Prüfung nach Done verschoben. | E1 (Trend auf dem Display zeigen) aus Ready starten. | — |
