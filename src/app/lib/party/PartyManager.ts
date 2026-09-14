@@ -1,6 +1,7 @@
 // src/app/lib/party/PartyManager.ts
 import EventEmitter from "events";
 import { MusicProvider, Track, PartyTrack } from "../providers/types";
+import { getAudioFeatureProvider } from "../providers/factory";
 import type { TransitionProfile } from "./settings";
 import {
   appendPlayedEntry,
@@ -9,6 +10,17 @@ import {
   takeRecentPlayed,
   type PlayedTrackEntry,
 } from "./playedHistory";
+import { computePartyProfile, type PartyProfile } from "./partyProfile";
+
+/**
+ * Wie viele der zuletzt gespielten Titel für die Profilberechnung
+ * berücksichtigt werden (Story C1).
+ *
+ * Begrenzt die Anzahl der Merkmals-Abfragen pro Neuberechnung. Ein größeres
+ * Fenster würde das Ergebnis kaum ändern, da die exponentielle Gewichtung
+ * in computePartyProfile ältere Titel ohnehin fast bedeutungslos macht.
+ */
+const PARTY_PROFILE_WINDOW = 30;
 
 export interface Suggestion {
   track: PartyTrack;
@@ -66,6 +78,12 @@ export class PartyManager extends EventEmitter {
    * diese Liste zusätzlich "wann und in welcher Reihenfolge?".
    */
   private playedTracks: PlayedTrackEntry[] = [];
+  /**
+   * Zeitgewichtetes Party-Profil (Story C1), null solange noch nicht genug
+   * Titel mit bekannten Merkmalen gespielt wurden. Wird nicht persistiert —
+   * es lässt sich aus playedTracks jederzeit neu berechnen.
+   */
+  private partyProfile: PartyProfile | null = null;
   private suggestionThreshold = 3;
   private fadeDurationSeconds = 0;
   private transitionProfile: TransitionProfile = "balanced";
@@ -126,6 +144,12 @@ export class PartyManager extends EventEmitter {
     if (initialState?.currentTrack?.id) {
       this.playedTrackIds.add(initialState.currentTrack.id);
     }
+    // Nach einem Neustart ist bereits Historie da, aber noch kein Profil im
+    // Speicher — einmalig im Hintergrund nachrechnen, damit getPartyProfile()
+    // nicht erst auf den nächsten gespielten Titel warten muss.
+    if (this.playedTracks.length > 0) {
+      void this.recomputePartyProfile();
+    }
     // Restore suggestions from persisted state
     if (initialState?.suggestions) {
       for (const s of initialState.suggestions) {
@@ -167,6 +191,49 @@ export class PartyManager extends EventEmitter {
   }
 
   /**
+   * Gibt das aktuelle Party-Profil zurück (Story C1), oder null, solange
+   * noch nicht genug Titel mit bekannten Merkmalen gespielt wurden.
+   */
+  getPartyProfile(): PartyProfile | null {
+    return this.partyProfile;
+  }
+
+  /**
+   * Berechnet das Party-Profil neu.
+   *
+   * Holt zu den zuletzt gespielten Titeln die Audio-Merkmale über die
+   * bestehende Anbieter-Kette (Story B1/B2 — ReccoBeats mit Zwischenspeicher,
+   * sonst Schätzung aus Spotify-Genres) und übergibt sie der reinen
+   * Rechenfunktion in partyProfile.ts.
+   *
+   * Läuft bewusst unabhängig vom Aufrufer (nicht awaited von recordPlayed):
+   * ein Netzwerkruf hier darf das eigentliche "Titel gestartet"-Ereignis
+   * nicht verzögern. Schlägt die Berechnung fehl, bleibt das zuletzt
+   * bekannte Profil stehen statt auf null zurückzufallen — ein einzelner
+   * Fehlversuch soll kein bereits brauchbares Profil wegwerfen.
+   */
+  private async recomputePartyProfile(): Promise<void> {
+    const recent = takeRecentPlayed(this.playedTracks, PARTY_PROFILE_WINDOW);
+    if (recent.length === 0) return;
+
+    try {
+      const provider = getAudioFeatureProvider();
+      const featuresByTrackId = await provider.getAudioFeatures(
+        recent.map((entry) => entry.trackId)
+      );
+
+      const inputs = recent.map((entry) => ({
+        features: featuresByTrackId.get(entry.trackId),
+        playedAt: entry.playedAt,
+      }));
+
+      this.partyProfile = computePartyProfile(inputs);
+    } catch (error) {
+      console.warn("[party-profile] Neuberechnung fehlgeschlagen:", error);
+    }
+  }
+
+  /**
    * Vermerkt, dass ein Titel gerade zu spielen begonnen hat.
    *
    * Wird an jeder Stelle aufgerufen, an der ein Titel zum currentTrack wird —
@@ -185,6 +252,9 @@ export class PartyManager extends EventEmitter {
         artist: track.artist ?? "",
       })
     );
+    // Profil im Hintergrund aktualisieren (Story C1) — nicht abgewartet,
+    // siehe Kommentar an recomputePartyProfile.
+    void this.recomputePartyProfile();
   }
 
   getVotedByClient() {
