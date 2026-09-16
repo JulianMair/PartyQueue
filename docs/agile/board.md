@@ -60,13 +60,13 @@ Startzustand. Beim Arbeiten verschiebst du die Karten zwischen den Spalten.
 - G1 · Technische Dokumentation · 3 SP
 
 ### Ready
-D2 · Kandidaten ranken · 5 SP
+_(leer)_
 
 ### In Progress  (WIP Limit: 1)
 _(leer)_
 
 ### In Review  (WIP Limit: 2)
-_(leer)_
+- D2 · Kandidaten ranken · 5 SP
 
 ### Done
 - A1 · Gespielte Titel erfassen · 3 SP
@@ -97,3 +97,4 @@ _(leer)_
 | 2026-09-16 | E1 nach eigener Prüfung nach Done verschoben. Separat (außerhalb dieser Feature-Stories) Ursache für "Party erstellen geht nicht" gefunden: Mongo-Verbindungs-Promise in mongodb.ts cached einen einmal fehlgeschlagenen Verbindungsversuch dauerhaft. Auf Wunsch nicht gefixt, nur Workaround (Server-Neustart) genannt — bleibt bewusst außerhalb des Feature-Scopes. | D1 (Kandidaten erzeugen) aus Ready starten. | Der Mongo-Cache-Bug bleibt ungefixt bestehen, bis separat entschieden. |
 | 2026-09-16 | D1 gebaut: `candidatePool.ts` mit reinem `pickTrendingArtistIds` (angesagte Künstler nach Häufigkeit/Aktualität) und `mergeCandidatePools` (Dedup + Ausschluss), plus Orchestrator `buildCandidatePool`. Neue Provider-Methode `getArtistTopTracks` (Spotify-Implementierung, `/v1/artists/{id}/top-tracks`). Quellen: Top-Tracks angesagter Künstler + Genre-Suche aus den Party-Einstellungen. Schließt gespielte Titel, aktuelle Queue und laufenden Song aus. Auto-Fill in PartyRegistry unverändert, neue Logik wird nirgends automatisch aufgerufen. 10 reine Prüfungen + 7 Prüfungen gegen die echte API (inkl. Ende-zu-Ende: gespielter Titel → Künstler-ID → Top-Tracks). | D1 prüfen lassen. | — |
 | 2026-09-16 | D1 nach eigener Prüfung nach Done verschoben. | D2 (Kandidaten ranken) aus Ready starten. | — |
+| 2026-09-16 | D2 gebaut: `candidateRanking.ts` mit reinem `cosineSimilarity` + `rankCandidates` (rankt Kandidaten mit bekannten Merkmalen nach Ähnlichkeit zum Profil-Vektor aus C1, deterministisch per Track-ID-Tie-Break, kurze Erklärung je Kandidat anhand der nächsten Dimension), plus Orchestrator `rankCandidatePool` (holt Merkmale über die bestehende B1/B2-Kette, leer ohne Profil). Nirgends automatisch aufgerufen, wie D1. 8 reine Prüfungen. | D2 prüfen lassen. | — |
