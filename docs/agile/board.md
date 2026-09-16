@@ -52,20 +52,19 @@ Summe: 15 Stories, 56 Story Points. Prio ist Planung, keine Zusage. Die tatsäch
 Startzustand. Beim Arbeiten verschiebst du die Karten zwischen den Spalten.
 
 ### Backlog
-- D4 · Vorschlagsmodus statt Automatik · 2 SP
 - E2 · Einstellungen für den Automatikmodus · 2 SP
 - F1 · Automatisierte Tests · 5 SP
 - F2 · Nutzerevaluation · 3 SP
 - G1 · Technische Dokumentation · 3 SP
 
 ### Ready
-_(leer)_
+D4 · Vorschlagsmodus statt Automatik · 2 SP
 
 ### In Progress  (WIP Limit: 1)
 _(leer)_
 
 ### In Review  (WIP Limit: 2)
-- D3 · Automatisches Auffüllen · 3 SP
+_(leer)_
 
 ### Done
 - A1 · Gespielte Titel erfassen · 3 SP
@@ -77,6 +76,7 @@ _(leer)_
 - E1 · Trend auf dem Display zeigen · 3 SP
 - D1 · Kandidaten erzeugen · 5 SP
 - D2 · Kandidaten ranken · 5 SP
+- D3 · Automatisches Auffüllen · 3 SP
 
 ---
 
@@ -101,3 +101,4 @@ _(leer)_
 | 2026-09-16 | D2 nach eigener Prüfung nach Done verschoben. | D3 (Automatisches Auffüllen) aus Ready starten. | — |
 | 2026-09-16 | D3 gebaut: bisherige genre-basierte Auto-Fill-Suche (`buildGenreQueries`/`analyzeVotePreferences`/`collectGenreTracks`) vollständig entfernt und durch `buildAutoFillCandidates` ersetzt, die auf D1 (Kandidatenpool) + D2 (Ranking) aufbaut. Ohne Profil (junge Party) wird der rohe Pool statt Ranking verwendet, damit die Warteschlange trotzdem auffüllt. Auswahl-Entscheidung als reine Funktion `selectAutoFillTracks` in eigener Datei (Explicit-Filter, Ausschluss zuletzt eingereihter Titel, Begrenzung). Aufrufer (`seedQueueFromSettings`, `runAutoFillCycle`) und ihre Gates unverändert — genau ein Auffüll-Mechanismus. 9 reine Prüfungen. | D3 prüfen lassen — hier besonders wichtig: kurzer manueller Test im laufenden Betrieb (Party mit aktiviertem Auto-Fill), da diese Story erstmals die produktive Queue-Logik anfasst. | Kein Betriebstest der ganzen Kette durch mich möglich (Spotify-Login/Next.js-Kontext nötig, siehe B1/B2). Nur tsc + reine Prüfungen + sorgfältiges Lesen des Diffs. |
 | 2026-09-16 | D3 im Betrieb getestet (Dev-Server neu gestartet, echte Party mit Auto-Fill): 7 Titel sauber nachgefüllt, Trend-Chip korrekt, keine Fehler. Danach auf Julians Wunsch die Genre-Auswahl komplett aus UI, PartySettings und dem Kandidatenpool entfernt (war die zweite von zwei D1-Quellen) — candidatePool.ts liefert jetzt nur noch über angesagte Künstler. | D3 (inkl. Genre-Entfernung) prüfen lassen. | — |
+| 2026-09-16 | D3 nach eigener Prüfung nach Done verschoben. | D4 (Vorschlagsmodus statt Automatik) aus Ready starten. | — |
