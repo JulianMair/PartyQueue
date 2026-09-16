@@ -4,6 +4,9 @@ import { getProvider } from "../providers/factory";
 import { PartyStore, type PartyMetadata } from "./partyStore";
 import { DEFAULT_PARTY_SETTINGS, sanitizePartySettings, type PartySettings } from "./settings";
 import type { Track } from "../providers/types";
+import { buildCandidatePool } from "./candidatePool";
+import { rankCandidatePool } from "./candidateRanking";
+import { selectAutoFillTracks } from "./autoFillSelection";
 
 class PartyRegistry {
   private static instance: PartyRegistry;
@@ -202,204 +205,42 @@ class PartyRegistry {
     });
   }
 
-  private buildGenreQueries(genre: string) {
-    const normalized = genre.trim().toLowerCase();
-    if (normalized === "party mix") {
-      return [
-        "party hits",
-        "club hits",
-        "dance hits",
-        "edm hits",
-        "house hits",
-        "hip-hop hits",
-        "pop hits",
-        "90s party",
-        "deutschrap hits",
-        "schlager party",
-      ];
-    }
-    const base = normalized === "90s" ? "90s hits" : `${genre} hits`;
-    return [
-      `genre:${normalized}`,
-      base,
-      `${genre} party`,
-      `${genre} top hits`,
-      `${genre} charts`,
-    ];
-  }
-
-  private analyzeVotePreferences(manager: PartyManager) {
-    const votedTracks = manager
-      .getState()
-      .queue.filter((track) => track.votes > 0)
-      .sort((a, b) => b.votes - a.votes || b.addedAt - a.addedAt)
-      .slice(0, 8);
-
-    const artists: string[] = [];
-    const trackTerms: string[] = [];
-
-    for (const track of votedTracks) {
-      const primaryArtist = (track.artist || "")
-        .split(",")
-        .map((value) => value.trim())
-        .find(Boolean);
-      if (primaryArtist) artists.push(primaryArtist);
-
-      const title = String(track.name || "").trim();
-      if (title) {
-        const simplified = title.replace(/\(.*?\)|\[.*?\]/g, "").trim();
-        if (simplified.length >= 3) {
-          trackTerms.push(simplified);
-        }
-      }
-    }
-
-    return {
-      artists: Array.from(new Set(artists)).slice(0, 4),
-      trackTerms: Array.from(new Set(trackTerms)).slice(0, 3),
-    };
-  }
-
-  private async collectGenreTracks(
+  /**
+   * Beschafft die Kandidaten für das automatische Auffüllen (Story D3).
+   *
+   * Ersetzt die frühere genre-basierte Suche vollständig durch den
+   * Empfehlungs-Pfad aus den Stories D1 (Kandidatenpool) und D2 (Ranking).
+   * Die eigentliche Auswahl-Entscheidung (was kommt tatsächlich rein) ist
+   * eine reine Funktion in autoFillSelection.ts — hier passiert nur die
+   * Beschaffung (I/O): Kandidatenpool holen, falls möglich ranken, an die
+   * reine Funktion übergeben.
+   */
+  private async buildAutoFillCandidates(
     partyId: string,
     settings: PartySettings,
-    desiredCount: number,
-    externalExcludedTrackIds?: Set<string>
+    desiredCount: number
   ): Promise<Track[]> {
-    if (settings.genres.length === 0 || desiredCount <= 0) return [];
+    if (desiredCount <= 0) return [];
 
     const manager = this.parties.get(partyId);
     if (!manager) return [];
-    const votePreferences = this.analyzeVotePreferences(manager);
 
     const meta = this.partyMeta.get(partyId);
     const provider = getProvider(meta?.providerName || this.defaultProvider);
 
-    const bucketCount = Math.max(1, settings.genres.length + (votePreferences.artists.length > 0 ? 1 : 0));
-    const perGenreLimit = Math.max(20, Math.ceil((desiredCount * 6) / bucketCount));
-    const existingTrackIds = new Set(
-      manager
-        .getState()
-        .queue.map((track) => track.id)
-        .concat(manager.getState().currentTrack?.id ?? [])
-    );
-    for (const playedId of manager.getPlayedTrackIds()) {
-      existingTrackIds.add(playedId);
-    }
-    if (externalExcludedTrackIds) {
-      for (const trackId of externalExcludedTrackIds) {
-        existingTrackIds.add(trackId);
-      }
-    }
+    const candidates = await buildCandidatePool(manager, provider, settings.genres);
+    if (candidates.length === 0) return [];
+
+    // Erst ab einem Party-Profil (Story C1, ≥5 gespielte Titel) ist Ranking
+    // möglich. Ohne Profil bleibt es beim rohen Kandidatenpool, statt eine
+    // junge Party ganz ohne Auffüllung zu lassen.
+    const profile = manager.getPartyProfile();
+    const ranked = profile ? await rankCandidatePool(candidates, profile) : null;
+
     const recentIds = this.recentAutoFillTrackIds.get(partyId) ?? [];
-    for (const trackId of recentIds) {
-      existingTrackIds.add(trackId);
-    }
-    const candidateTrackIds = new Set<string>();
-    const genreBuckets: Track[][] = [];
+    const excludeTrackIds = new Set(recentIds);
 
-    const targetGenres = settings.genres.length > 0 ? settings.genres : [""];
-    for (const genre of targetGenres) {
-      const bucket: Track[] = [];
-      const baseQueries = genre
-        ? this.buildGenreQueries(genre)
-        : ["party hits", "top hits", "charts", "party classics"];
-      const preferenceQueries = [
-        ...votePreferences.artists.slice(0, 2).map((artist) =>
-          genre ? `${genre} ${artist}` : `${artist} hits`
-        ),
-        ...votePreferences.trackTerms.slice(0, 2).map((term) =>
-          genre ? `${genre} ${term}` : term
-        ),
-      ];
-      const queries = Array.from(new Set([...baseQueries, ...preferenceQueries]));
-
-      for (const query of queries) {
-        let tracks: Track[] = [];
-        try {
-          tracks = await provider.searchTracks(query, perGenreLimit);
-        } catch (error) {
-          console.error(`[PartyRegistry] Genre search failed (${query}):`, error);
-          continue;
-        }
-
-        for (const track of tracks) {
-          if (!track?.id || !track?.uri) continue;
-          if (!settings.allowExplicit && track.explicit) continue;
-          if (existingTrackIds.has(track.id)) continue;
-          if (candidateTrackIds.has(track.id)) continue;
-
-          candidateTrackIds.add(track.id);
-          bucket.push(track);
-        }
-      }
-
-      // Keep variety but still prefer known songs near the top.
-      const topWindow = bucket.slice(0, Math.min(bucket.length, 30));
-      for (let i = topWindow.length - 1; i > 0; i -= 1) {
-        const j = Math.floor(Math.random() * (i + 1));
-        const tmp = topWindow[i];
-        topWindow[i] = topWindow[j];
-        topWindow[j] = tmp;
-      }
-      if (topWindow.length > 0) {
-        genreBuckets.push(topWindow);
-      } else {
-        genreBuckets.push(bucket);
-      }
-    }
-
-    if (votePreferences.artists.length > 0) {
-      const preferenceBucket: Track[] = [];
-      const preferenceQueries = Array.from(
-        new Set(
-          votePreferences.artists.flatMap((artist) => [
-            `${artist} top hits`,
-            `${artist} popular songs`,
-          ])
-        )
-      );
-
-      for (const query of preferenceQueries) {
-        let tracks: Track[] = [];
-        try {
-          tracks = await provider.searchTracks(query, perGenreLimit);
-        } catch (error) {
-          console.error(`[PartyRegistry] Preference search failed (${query}):`, error);
-          continue;
-        }
-
-        for (const track of tracks) {
-          if (!track?.id || !track?.uri) continue;
-          if (!settings.allowExplicit && track.explicit) continue;
-          if (existingTrackIds.has(track.id)) continue;
-          if (candidateTrackIds.has(track.id)) continue;
-          candidateTrackIds.add(track.id);
-          preferenceBucket.push(track);
-        }
-      }
-
-      if (preferenceBucket.length > 0) {
-        genreBuckets.push(preferenceBucket.slice(0, Math.min(preferenceBucket.length, 30)));
-      }
-    }
-
-    const mixedCandidates: Track[] = [];
-    let index = 0;
-    while (mixedCandidates.length < desiredCount) {
-      let foundInRound = false;
-      for (const bucket of genreBuckets) {
-        if (index < bucket.length) {
-          mixedCandidates.push(bucket[index]);
-          foundInRound = true;
-          if (mixedCandidates.length >= desiredCount) break;
-        }
-      }
-      if (!foundInRound) break;
-      index += 1;
-    }
-
-    return mixedCandidates;
+    return selectAutoFillTracks(candidates, ranked, desiredCount, excludeTrackIds, settings.allowExplicit);
   }
 
   private markRecentlyAutofilledTracks(partyId: string, tracks: Track[]) {
@@ -422,7 +263,7 @@ class PartyRegistry {
     const missing = Math.max(0, desiredQueueSize - currentSize);
     if (missing === 0) return 0;
 
-    const seedTracks = await this.collectGenreTracks(partyId, settings, missing);
+    const seedTracks = await this.buildAutoFillCandidates(partyId, settings, missing);
     if (seedTracks.length === 0) return 0;
 
     await manager.addTracks(seedTracks);
@@ -449,7 +290,7 @@ class PartyRegistry {
       if (state.queue.length < targetQueueSize) {
         const toAdd = Math.min(2, targetQueueSize - state.queue.length);
         if (toAdd <= 0) return;
-        const refillTracks = await this.collectGenreTracks(partyId, settings, toAdd);
+        const refillTracks = await this.buildAutoFillCandidates(partyId, settings, toAdd);
         if (refillTracks.length > 0) {
           await manager.addTracks(refillTracks);
           this.markRecentlyAutofilledTracks(partyId, refillTracks);
