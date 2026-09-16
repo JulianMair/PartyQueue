@@ -1,6 +1,7 @@
 import { MusicProvider, UserProfile, Track, Playlist } from "../types";
 import * as Player from "./player";
 import * as Playlists from "./playlists";
+import { getArtistTopTracks } from "./artistTopTracks";
 import { spotifyApiFetch } from "./auth";
 
 export class SpotifyProvider implements MusicProvider {
@@ -37,4 +38,6 @@ export class SpotifyProvider implements MusicProvider {
   getPlaylistTracks = Playlists.getPlaylistTracks;
   searchTracks = Playlists.searchTracks;
   playPlaylist = Playlists.playPlaylist;
+
+  getArtistTopTracks = getArtistTopTracks;
 }

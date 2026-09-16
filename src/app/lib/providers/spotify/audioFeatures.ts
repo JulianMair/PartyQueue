@@ -30,8 +30,12 @@ const BATCH_SIZE = 50;
  *
  * Ein Titel kann mehrere Künstler haben. Alle werden gesammelt, weil bei
  * einer Zusammenarbeit beide Genres zur Einordnung beitragen.
+ *
+ * Exportiert, damit candidatePool.ts (Story D1) dieselbe Auflösung nutzt,
+ * um die "angesagten" Künstler einer Party zu bestimmen — statt sie ein
+ * zweites Mal zu implementieren.
  */
-async function fetchArtistIdsPerTrack(
+export async function fetchArtistIdsPerTrack(
   trackIds: string[]
 ): Promise<Map<string, string[]>> {
   const result = new Map<string, string[]>();

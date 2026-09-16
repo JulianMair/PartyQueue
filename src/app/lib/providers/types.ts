@@ -50,6 +50,14 @@ export interface MusicProvider {
   searchTracks(query: string, limit?: number): Promise<Track[]>;
   playPlaylist(playlistId: string): Promise<void>;
 
+  /**
+   * Liefert die Top-Tracks eines Künstlers (Story D1).
+   *
+   * Grundlage für den Kandidatenpool des Empfehlungs-Features: "angesagte"
+   * Künstler der Party liefern über diesen Weg neue, aber ähnliche Titel.
+   * Nutzt bewusst nicht den verbotenen "Related Artists"-Endpunkt.
+   */
+  getArtistTopTracks(artistId: string): Promise<Track[]>;
 }
 
 /**
