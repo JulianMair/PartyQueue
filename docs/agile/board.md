@@ -52,7 +52,6 @@ Summe: 15 Stories, 56 Story Points. Prio ist Planung, keine Zusage. Die tatsäch
 Startzustand. Beim Arbeiten verschiebst du die Karten zwischen den Spalten.
 
 ### Backlog
-- D3 · Automatisches Auffüllen · 3 SP
 - D4 · Vorschlagsmodus statt Automatik · 2 SP
 - E2 · Einstellungen für den Automatikmodus · 2 SP
 - F1 · Automatisierte Tests · 5 SP
@@ -60,13 +59,13 @@ Startzustand. Beim Arbeiten verschiebst du die Karten zwischen den Spalten.
 - G1 · Technische Dokumentation · 3 SP
 
 ### Ready
-_(leer)_
+D3 · Automatisches Auffüllen · 3 SP
 
 ### In Progress  (WIP Limit: 1)
 _(leer)_
 
 ### In Review  (WIP Limit: 2)
-- D2 · Kandidaten ranken · 5 SP
+_(leer)_
 
 ### Done
 - A1 · Gespielte Titel erfassen · 3 SP
@@ -77,6 +76,7 @@ _(leer)_
 - C2 · Trend ableiten · 5 SP
 - E1 · Trend auf dem Display zeigen · 3 SP
 - D1 · Kandidaten erzeugen · 5 SP
+- D2 · Kandidaten ranken · 5 SP
 
 ---
 
@@ -98,3 +98,4 @@ _(leer)_
 | 2026-09-16 | D1 gebaut: `candidatePool.ts` mit reinem `pickTrendingArtistIds` (angesagte Künstler nach Häufigkeit/Aktualität) und `mergeCandidatePools` (Dedup + Ausschluss), plus Orchestrator `buildCandidatePool`. Neue Provider-Methode `getArtistTopTracks` (Spotify-Implementierung, `/v1/artists/{id}/top-tracks`). Quellen: Top-Tracks angesagter Künstler + Genre-Suche aus den Party-Einstellungen. Schließt gespielte Titel, aktuelle Queue und laufenden Song aus. Auto-Fill in PartyRegistry unverändert, neue Logik wird nirgends automatisch aufgerufen. 10 reine Prüfungen + 7 Prüfungen gegen die echte API (inkl. Ende-zu-Ende: gespielter Titel → Künstler-ID → Top-Tracks). | D1 prüfen lassen. | — |
 | 2026-09-16 | D1 nach eigener Prüfung nach Done verschoben. | D2 (Kandidaten ranken) aus Ready starten. | — |
 | 2026-09-16 | D2 gebaut: `candidateRanking.ts` mit reinem `cosineSimilarity` + `rankCandidates` (rankt Kandidaten mit bekannten Merkmalen nach Ähnlichkeit zum Profil-Vektor aus C1, deterministisch per Track-ID-Tie-Break, kurze Erklärung je Kandidat anhand der nächsten Dimension), plus Orchestrator `rankCandidatePool` (holt Merkmale über die bestehende B1/B2-Kette, leer ohne Profil). Nirgends automatisch aufgerufen, wie D1. 8 reine Prüfungen. | D2 prüfen lassen. | — |
+| 2026-09-16 | D2 nach eigener Prüfung nach Done verschoben. | D3 (Automatisches Auffüllen) aus Ready starten. | — |
