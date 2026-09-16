@@ -6,7 +6,6 @@ import { useParty } from "@/app/context/PartyContext";
 import PartyManagementSheet from "@/app/components/PartyManagementSheet";
 import {
   DEFAULT_PARTY_SETTINGS,
-  type PartyGenre,
   type PartySettings,
 } from "@/app/lib/party/settings";
 // Typ aus deinem bestehenden Spotify-Provider
@@ -216,17 +215,6 @@ export default function PartyQueue() {
 
   const handleShowQr = () => setShowQr((prev) => !prev);
   const closeTrackMenu = () => setOpenTrackMenu(null);
-  const toggleGenre = (genre: PartyGenre) => {
-    setPendingSettings((prev) => {
-      const hasGenre = prev.genres.includes(genre);
-      return {
-        ...prev,
-        genres: hasGenre
-          ? prev.genres.filter((item) => item !== genre)
-          : [...prev.genres, genre],
-      };
-    });
-  };
 
   const handleSaveSettings = async () => {
     if (!partyId) return;
@@ -664,7 +652,6 @@ export default function PartyQueue() {
         newPartyName={newPartyName}
         onNewPartyNameChange={setNewPartyName}
         pendingSettings={pendingSettings}
-        onToggleGenre={toggleGenre}
         onPendingSettingsChange={setPendingSettings}
         onCreateParty={handleCreateParty}
         onSaveSettings={handleSaveSettings}

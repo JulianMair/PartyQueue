@@ -1,9 +1,7 @@
 "use client";
 
 import {
-  PARTY_GENRE_OPTIONS,
   TRANSITION_PROFILE_OPTIONS,
-  type PartyGenre,
   type PartySettings,
 } from "@/app/lib/party/settings";
 
@@ -24,7 +22,6 @@ interface PartyManagementSheetProps {
   newPartyName: string;
   onNewPartyNameChange: (value: string) => void;
   pendingSettings: PartySettings;
-  onToggleGenre: (genre: PartyGenre) => void;
   onPendingSettingsChange: (next: PartySettings) => void;
   onCreateParty: () => Promise<void>;
   onSaveSettings: () => Promise<void>;
@@ -42,7 +39,6 @@ export default function PartyManagementSheet({
   newPartyName,
   onNewPartyNameChange,
   pendingSettings,
-  onToggleGenre,
   onPendingSettingsChange,
   onCreateParty,
   onSaveSettings,
@@ -100,29 +96,6 @@ export default function PartyManagementSheet({
             >
               Neue Party
             </button>
-          </div>
-
-          <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-3">
-            <p className="mb-2 text-sm font-medium text-gray-100">Genres</p>
-            <div className="flex flex-wrap gap-2">
-              {PARTY_GENRE_OPTIONS.map((genre) => {
-                const selected = pendingSettings.genres.includes(genre);
-                return (
-                  <button
-                    key={genre}
-                    onClick={() => onToggleGenre(genre)}
-                    type="button"
-                    className={`rounded-full border px-3 py-1.5 text-xs transition ${
-                      selected
-                        ? "border-green-500 bg-green-700/30 text-green-300"
-                        : "border-neutral-700 bg-neutral-800 text-gray-300 hover:bg-neutral-700"
-                    }`}
-                  >
-                    {genre}
-                  </button>
-                );
-              })}
-            </div>
           </div>
 
           <div className="space-y-3 rounded-lg border border-neutral-800 bg-neutral-900 p-3">
@@ -326,12 +299,6 @@ export default function PartyManagementSheet({
                     }`}
                   >
                     {party.name}
-                    {party.settings?.genres?.length ? (
-                      <span className="ml-2 text-[11px] text-gray-400">
-                        · {party.settings.genres.slice(0, 2).join(", ")}
-                        {party.settings.genres.length > 2 ? " +" : ""}
-                      </span>
-                    ) : null}
                   </button>
                   <button
                     onClick={() => void onDeleteParty(party.partyId)}

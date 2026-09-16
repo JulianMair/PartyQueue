@@ -228,7 +228,7 @@ class PartyRegistry {
     const meta = this.partyMeta.get(partyId);
     const provider = getProvider(meta?.providerName || this.defaultProvider);
 
-    const candidates = await buildCandidatePool(manager, provider, settings.genres);
+    const candidates = await buildCandidatePool(manager, provider);
     if (candidates.length === 0) return [];
 
     // Erst ab einem Party-Profil (Story C1, ≥5 gespielte Titel) ist Ranking
@@ -281,7 +281,7 @@ class PartyRegistry {
       if (!manager || !meta) return;
 
       const settings = sanitizePartySettings(meta.settings ?? DEFAULT_PARTY_SETTINGS);
-      if (!settings.autoFillEnabled || settings.genres.length === 0) return;
+      if (!settings.autoFillEnabled) return;
       if (!manager.getState().isActive) return;
 
       const state = manager.getState();

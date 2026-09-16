@@ -1,26 +1,7 @@
-export const PARTY_GENRE_OPTIONS = [
-  "Party Mix",
-  "Rock",
-  "Hip-Hop",
-  "Deutschrap",
-  "Pop",
-  "Schlager",
-  "Club",
-  "Techno",
-  "House",
-  "EDM",
-  "90s",
-  "R&B",
-  "Latin",
-  "Indie",
-] as const;
-
-export type PartyGenre = (typeof PARTY_GENRE_OPTIONS)[number];
 export const TRANSITION_PROFILE_OPTIONS = ["smooth", "balanced", "aggressive"] as const;
 export type TransitionProfile = (typeof TRANSITION_PROFILE_OPTIONS)[number];
 
 export interface PartySettings {
-  genres: PartyGenre[];
   autoFillEnabled: boolean;
   targetQueueSize: number;
   allowExplicit: boolean;
@@ -33,7 +14,6 @@ export interface PartySettings {
 }
 
 export const DEFAULT_PARTY_SETTINGS: PartySettings = {
-  genres: [],
   autoFillEnabled: false,
   targetQueueSize: 20,
   allowExplicit: false,
@@ -46,14 +26,8 @@ export const DEFAULT_PARTY_SETTINGS: PartySettings = {
 
 export function sanitizePartySettings(input: unknown): PartySettings {
   const source = (input && typeof input === "object" ? input : {}) as Partial<PartySettings>;
-  const selectedGenres = Array.isArray(source.genres)
-    ? source.genres.filter((genre): genre is PartyGenre =>
-        PARTY_GENRE_OPTIONS.includes(genre as PartyGenre)
-      )
-    : [];
 
   return {
-    genres: Array.from(new Set(selectedGenres)),
     autoFillEnabled: Boolean(source.autoFillEnabled),
     targetQueueSize: Math.min(
       200,

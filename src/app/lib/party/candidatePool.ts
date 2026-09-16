@@ -2,15 +2,18 @@
 //
 // Erzeugt einen Kandidatenpool für das Empfehlungs-Feature (Story D1).
 //
-// Zwei Quellen, wie in der Algorithmus-Referenz des Features festgelegt:
-//   1. Top-Tracks der Künstler, die in der Party gerade "angesagt" sind
-//      (häufig unter den zuletzt gespielten Titeln).
-//   2. Suche nach den in den Party-Einstellungen gewählten Genres.
+// Quelle: Top-Tracks der Künstler, die in der Party gerade "angesagt"
+// sind (häufig unter den zuletzt gespielten Titeln).
+//
+// Ursprünglich gab es eine zweite Quelle über die von Gastgebern
+// gewählten Genres — die Genre-Auswahl wurde aus der App entfernt
+// (Nutzerentscheid nach dem Betriebstest von Story D3), deshalb ist
+// dieser Pfad hier ebenfalls entfernt statt als toter Code stehen zu
+// bleiben.
 //
 // Wichtig: Diese Datei wird an keiner Stelle automatisch aufgerufen. Sie
 // stellt nur die Fähigkeit bereit — das Ranking (Story D2) und das
-// tatsächliche Einreihen (Story D3) kommen erst noch. Die bestehende
-// Auto-Fill-Logik in PartyRegistry bleibt unverändert.
+// tatsächliche Einreihen (Story D3) nutzen sie.
 //
 // Wie bei Story B2 wird die Auflösung Track-ID → Künstler-ID direkt aus
 // providers/spotify/audioFeatures.ts wiederverwendet: das ist Spotify-
@@ -20,7 +23,6 @@
 
 import type { PartyManager } from "./PartyManager";
 import type { MusicProvider, Track } from "../providers/types";
-import type { PartyGenre } from "./settings";
 import { fetchArtistIdsPerTrack } from "../providers/spotify/audioFeatures";
 
 /** Wie viele der zuletzt gespielten Titel für die Künstler-Ermittlung zählen. */
@@ -28,9 +30,6 @@ export const RECENT_ARTIST_WINDOW = 15;
 
 /** Wie viele Künstler als "angesagt" gelten und Top-Tracks liefern. */
 export const TOP_TRENDING_ARTISTS = 5;
-
-/** Wie viele Treffer pro Genre-Suche angefragt werden. */
-const GENRE_SEARCH_LIMIT = 30;
 
 /**
  * Bestimmt die "angesagten" Künstler aus den zuletzt gespielten Titeln.
@@ -100,33 +99,20 @@ export function mergeCandidatePools(
 }
 
 /**
- * Baut die Suchanfrage für ein Genre.
- *
- * "Party Mix" ist kein echtes Genre, sondern die neutrale Option aus den
- * Party-Einstellungen — dafür eine generische Anfrage statt "Party Mix
- * hits" wörtlich zu suchen.
- */
-function genreSearchQuery(genre: string): string {
-  return genre.trim().toLowerCase() === "party mix" ? "party hits" : `${genre} hits`;
-}
-
-/**
  * Erzeugt den Kandidatenpool einer Party.
  *
  * I/O-Zusammenfassung (alles am Rand, keine Rechenlogik hier):
  *  1. Künstler-IDs der zuletzt gespielten Titel auflösen.
  *  2. Deren Top-Tracks holen (angesagte Künstler).
- *  3. Titel zu den Party-Genres suchen.
- *  4. Zusammenführen, bereits gespielte Titel sowie aktuelle Warteschlange
- *     und laufenden Song ausschließen.
+ *  3. Bereits gespielte Titel sowie aktuelle Warteschlange und laufenden
+ *     Song ausschließen.
  *
  * Einzelne fehlgeschlagene Anfragen (Netzwerk, einzelner Künstler) werfen
  * das Gesamtergebnis nicht um — sie tragen einfach nichts bei.
  */
 export async function buildCandidatePool(
   manager: PartyManager,
-  provider: MusicProvider,
-  genres: PartyGenre[]
+  provider: MusicProvider
 ): Promise<Track[]> {
   const recent = manager.getRecentPlayedTracks(RECENT_ARTIST_WINDOW);
   const trackIds = recent.map((entry) => entry.trackId);
@@ -135,29 +121,19 @@ export async function buildCandidatePool(
     trackIds.length > 0 ? await fetchArtistIdsPerTrack(trackIds) : new Map<string, string[]>();
   const trendingArtistIds = pickTrendingArtistIds(trackIds, artistIdsByTrack);
 
-  const [artistTrackLists, genreTrackLists] = await Promise.all([
-    Promise.all(
-      trendingArtistIds.map((artistId) =>
-        provider.getArtistTopTracks(artistId).catch((error) => {
-          console.warn(`[candidate-pool] Top-Tracks für Künstler ${artistId} fehlgeschlagen:`, error);
-          return [] as Track[];
-        })
-      )
-    ),
-    Promise.all(
-      genres.map((genre) =>
-        provider.searchTracks(genreSearchQuery(genre), GENRE_SEARCH_LIMIT).catch((error) => {
-          console.warn(`[candidate-pool] Genre-Suche für "${genre}" fehlgeschlagen:`, error);
-          return [] as Track[];
-        })
-      )
-    ),
-  ]);
+  const artistTrackLists = await Promise.all(
+    trendingArtistIds.map((artistId) =>
+      provider.getArtistTopTracks(artistId).catch((error) => {
+        console.warn(`[candidate-pool] Top-Tracks für Künstler ${artistId} fehlgeschlagen:`, error);
+        return [] as Track[];
+      })
+    )
+  );
 
   const state = manager.getState();
   const excludedTrackIds = new Set<string>(manager.getPlayedTrackIds());
   for (const track of state.queue) excludedTrackIds.add(track.id);
   if (state.currentTrack?.id) excludedTrackIds.add(state.currentTrack.id);
 
-  return mergeCandidatePools([...artistTrackLists, ...genreTrackLists], excludedTrackIds);
+  return mergeCandidatePools(artistTrackLists, excludedTrackIds);
 }
