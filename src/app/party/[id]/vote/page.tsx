@@ -60,6 +60,13 @@ function loadVotedSet(partyId: string, tracks: PartyTrack[]) {
   return voted;
 }
 
+/**
+ * Wie lange load() nach einem eigenen Vote den Serverstand für die Song-
+ * Liste ignoriert (siehe lastLocalVoteAtRef). Deckt einen vollen Poll-
+ * Zyklus (1,5s) plus die Umlaufzeit des Vote-Requests selbst ab.
+ */
+const VOTE_POLL_GUARD_MS = 2500;
+
 function getTop10Signature(top10: PartyTrack[]) {
   return top10.map((t) => `${t.id}:${t.votes}:${t.addedAt}`).join("|");
 }
@@ -102,6 +109,19 @@ export default function MobileVotePage({ params }: { params: Promise<{ id: strin
   const currentTrackSignatureRef = useRef("");
   const suggestionsSignatureRef = useRef("");
   const versionRef = useRef(0);
+  /**
+   * Zeitpunkt des letzten eigenen Votes.
+   *
+   * Bug: Ein Klick auf 👍 setzt die Anzeige sofort optimistisch (siehe vote()).
+   * Das Hintergrund-Polling (load(), alle 1,5s) läuft aber unabhängig weiter —
+   * war beim Klick schon eine Poll-Anfrage mit noch altem Serverstand
+   * unterwegs, kam ihre Antwort kurz danach zurück und hat die gerade erst
+   * korrekt gesetzte Anzeige wieder mit dem alten Stand überschrieben
+   * ("kurz richtig, dann zurück"). load() ignoriert deshalb Serverstände für
+   * ein kurzes Fenster nach einem eigenen Vote, statt jede Abweichung sofort
+   * zu übernehmen.
+   */
+  const lastLocalVoteAtRef = useRef(0);
 
   // Suggestion state
   const [suggestions, setSuggestions] = useState<SuggestionJSON[]>([]);
@@ -173,7 +193,11 @@ export default function MobileVotePage({ params }: { params: Promise<{ id: strin
 
       const top10 = Array.isArray(data.top10) ? (data.top10 as PartyTrack[]) : [];
       const sig = getTop10Signature(top10);
-      if (sig !== top10SignatureRef.current) {
+      // Kurz nach einem eigenen Vote laufende Polls können noch den alten
+      // Serverstand tragen (siehe lastLocalVoteAtRef) — die würden sonst die
+      // gerade erst korrekt gesetzte Anzeige wieder zurückwerfen.
+      const withinOwnVoteGuard = Date.now() - lastLocalVoteAtRef.current < VOTE_POLL_GUARD_MS;
+      if (sig !== top10SignatureRef.current && !withinOwnVoteGuard) {
         top10SignatureRef.current = sig;
         setSongs(top10);
         setVotedTrackIds(loadVotedSet(partyId, top10));
@@ -232,6 +256,7 @@ export default function MobileVotePage({ params }: { params: Promise<{ id: strin
     const action: "vote" | "unvote" = wasVoted ? "unvote" : "vote";
 
     setPendingVoteTrackIds((p) => new Set(p).add(trackId));
+    lastLocalVoteAtRef.current = Date.now();
     const optimistic = applyLocalVoteDelta(prev, trackId, wasVoted ? -1 : 1);
     setSongs(optimistic);
     top10SignatureRef.current = getTop10Signature(optimistic);
