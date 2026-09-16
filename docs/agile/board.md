@@ -52,7 +52,6 @@ Summe: 15 Stories, 56 Story Points. Prio ist Planung, keine Zusage. Die tatsäch
 Startzustand. Beim Arbeiten verschiebst du die Karten zwischen den Spalten.
 
 ### Backlog
-- D2 · Kandidaten ranken · 5 SP
 - D3 · Automatisches Auffüllen · 3 SP
 - D4 · Vorschlagsmodus statt Automatik · 2 SP
 - E2 · Einstellungen für den Automatikmodus · 2 SP
@@ -61,13 +60,13 @@ Startzustand. Beim Arbeiten verschiebst du die Karten zwischen den Spalten.
 - G1 · Technische Dokumentation · 3 SP
 
 ### Ready
-_(leer)_
+D2 · Kandidaten ranken · 5 SP
 
 ### In Progress  (WIP Limit: 1)
 _(leer)_
 
 ### In Review  (WIP Limit: 2)
-- D1 · Kandidaten erzeugen · 5 SP
+_(leer)_
 
 ### Done
 - A1 · Gespielte Titel erfassen · 3 SP
@@ -77,6 +76,7 @@ _(leer)_
 - C1 · Party Profil berechnen · 5 SP
 - C2 · Trend ableiten · 5 SP
 - E1 · Trend auf dem Display zeigen · 3 SP
+- D1 · Kandidaten erzeugen · 5 SP
 
 ---
 
@@ -96,3 +96,4 @@ _(leer)_
 | 2026-09-14 | E1 gebaut: `/api/party/display` liefert zusätzlich `trend: {label} \| null` (nur das Label, keine Rohwerte). `/display`-Seite zeigt bei vorhandenem Trend einen kleinen Chip neben "Aktueller Song". `/displayv2` (Charts-Ansicht) bewusst nicht angefasst. | E1 prüfen lassen. | ESLint lief nicht durch (vorbestehendes Config-Problem, fehlendes react-hooks-Plugin, unabhängig von dieser Story) — Typprüfung über tsc stattdessen. |
 | 2026-09-16 | E1 nach eigener Prüfung nach Done verschoben. Separat (außerhalb dieser Feature-Stories) Ursache für "Party erstellen geht nicht" gefunden: Mongo-Verbindungs-Promise in mongodb.ts cached einen einmal fehlgeschlagenen Verbindungsversuch dauerhaft. Auf Wunsch nicht gefixt, nur Workaround (Server-Neustart) genannt — bleibt bewusst außerhalb des Feature-Scopes. | D1 (Kandidaten erzeugen) aus Ready starten. | Der Mongo-Cache-Bug bleibt ungefixt bestehen, bis separat entschieden. |
 | 2026-09-16 | D1 gebaut: `candidatePool.ts` mit reinem `pickTrendingArtistIds` (angesagte Künstler nach Häufigkeit/Aktualität) und `mergeCandidatePools` (Dedup + Ausschluss), plus Orchestrator `buildCandidatePool`. Neue Provider-Methode `getArtistTopTracks` (Spotify-Implementierung, `/v1/artists/{id}/top-tracks`). Quellen: Top-Tracks angesagter Künstler + Genre-Suche aus den Party-Einstellungen. Schließt gespielte Titel, aktuelle Queue und laufenden Song aus. Auto-Fill in PartyRegistry unverändert, neue Logik wird nirgends automatisch aufgerufen. 10 reine Prüfungen + 7 Prüfungen gegen die echte API (inkl. Ende-zu-Ende: gespielter Titel → Künstler-ID → Top-Tracks). | D1 prüfen lassen. | — |
+| 2026-09-16 | D1 nach eigener Prüfung nach Done verschoben. | D2 (Kandidaten ranken) aus Ready starten. | — |
