@@ -1,8 +1,20 @@
 export const TRANSITION_PROFILE_OPTIONS = ["smooth", "balanced", "aggressive"] as const;
 export type TransitionProfile = (typeof TRANSITION_PROFILE_OPTIONS)[number];
 
+/**
+ * Wie automatisch aufgefüllte Titel behandelt werden (Story D4).
+ *
+ * "auto"    — Titel werden direkt in die Queue eingereiht (Story D3, bisheriges Verhalten).
+ * "suggest" — Titel landen erst als Vorschlag (PartyManager.pendingRecommendations)
+ *             und müssen vom Gastgeber einzeln bestätigt werden, bevor sie in die
+ *             Queue kommen.
+ */
+export const AUTO_FILL_MODE_OPTIONS = ["auto", "suggest"] as const;
+export type AutoFillMode = (typeof AUTO_FILL_MODE_OPTIONS)[number];
+
 export interface PartySettings {
   autoFillEnabled: boolean;
+  autoFillMode: AutoFillMode;
   targetQueueSize: number;
   allowExplicit: boolean;
   fadeSeconds: number;
@@ -15,6 +27,7 @@ export interface PartySettings {
 
 export const DEFAULT_PARTY_SETTINGS: PartySettings = {
   autoFillEnabled: false,
+  autoFillMode: "auto",
   targetQueueSize: 20,
   allowExplicit: false,
   fadeSeconds: 0,
@@ -29,6 +42,9 @@ export function sanitizePartySettings(input: unknown): PartySettings {
 
   return {
     autoFillEnabled: Boolean(source.autoFillEnabled),
+    autoFillMode: AUTO_FILL_MODE_OPTIONS.includes(source.autoFillMode as AutoFillMode)
+      ? (source.autoFillMode as AutoFillMode)
+      : "auto",
     targetQueueSize: Math.min(
       200,
       Math.max(5, Number.isFinite(source.targetQueueSize) ? Number(source.targetQueueSize) : 20)

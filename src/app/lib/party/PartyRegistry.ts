@@ -250,6 +250,39 @@ class PartyRegistry {
     this.recentAutoFillTrackIds.set(partyId, next);
   }
 
+  /**
+   * Wie viele Titel schon "belegt" sind, wenn es um die Zielgröße der Queue
+   * geht (Story D4). Im Vorschlagsmodus zählen wartende Vorschläge mit —
+   * sonst würde bei jedem Zyklus weiter nachgelegt, obwohl der Gastgeber die
+   * bisherigen Vorschläge noch gar nicht bestätigt hat.
+   */
+  private countTowardsTarget(manager: PartyManager, settings: PartySettings): number {
+    const state = manager.getState();
+    const pending = settings.autoFillMode === "suggest" ? manager.getPendingRecommendations().length : 0;
+    return state.queue.length + pending;
+  }
+
+  /**
+   * Reiht ausgewählte Auto-Fill-Titel ein oder legt sie als Vorschlag ab,
+   * je nach settings.autoFillMode (Story D4). In beiden Fällen zählen sie
+   * als "kürzlich vorgeschlagen", damit sie nicht sofort wiederkehren.
+   */
+  private async applySelectedTracks(
+    manager: PartyManager,
+    partyId: string,
+    settings: PartySettings,
+    tracks: Track[]
+  ) {
+    if (tracks.length === 0) return;
+
+    if (settings.autoFillMode === "suggest") {
+      manager.addPendingRecommendations(tracks);
+    } else {
+      await manager.addTracks(tracks);
+    }
+    this.markRecentlyAutofilledTracks(partyId, tracks);
+  }
+
   private async seedQueueFromSettings(
     partyId: string,
     settings: PartySettings
@@ -258,16 +291,14 @@ class PartyRegistry {
     if (!manager) return 0;
 
     const targetQueueSize = Math.max(5, settings.targetQueueSize);
-    const desiredQueueSize = targetQueueSize;
-    const currentSize = manager.getState().queue.length;
-    const missing = Math.max(0, desiredQueueSize - currentSize);
+    const currentSize = this.countTowardsTarget(manager, settings);
+    const missing = Math.max(0, targetQueueSize - currentSize);
     if (missing === 0) return 0;
 
     const seedTracks = await this.buildAutoFillCandidates(partyId, settings, missing);
     if (seedTracks.length === 0) return 0;
 
-    await manager.addTracks(seedTracks);
-    this.markRecentlyAutofilledTracks(partyId, seedTracks);
+    await this.applySelectedTracks(manager, partyId, settings, seedTracks);
     return seedTracks.length;
   }
 
@@ -284,20 +315,20 @@ class PartyRegistry {
       if (!settings.autoFillEnabled) return;
       if (!manager.getState().isActive) return;
 
-      const state = manager.getState();
       const targetQueueSize = Math.max(5, settings.targetQueueSize);
+      const currentSize = this.countTowardsTarget(manager, settings);
 
-      if (state.queue.length < targetQueueSize) {
-        const toAdd = Math.min(2, targetQueueSize - state.queue.length);
+      if (currentSize < targetQueueSize) {
+        const toAdd = Math.min(2, targetQueueSize - currentSize);
         if (toAdd <= 0) return;
         const refillTracks = await this.buildAutoFillCandidates(partyId, settings, toAdd);
         if (refillTracks.length > 0) {
-          await manager.addTracks(refillTracks);
-          this.markRecentlyAutofilledTracks(partyId, refillTracks);
+          await this.applySelectedTracks(manager, partyId, settings, refillTracks);
           await this.persistParty(partyId);
         }
       } else {
-        // Zielgröße erreicht: nichts entfernen, Queue bleibt stabil.
+        // Zielgröße erreicht (Queue + ggf. wartende Vorschläge): nichts
+        // entfernen, Zustand bleibt stabil.
         return;
       }
     } catch (error) {
@@ -305,6 +336,28 @@ class PartyRegistry {
     } finally {
       this.autoFillRunning.delete(partyId);
     }
+  }
+
+  /** Übernimmt einen wartenden Vorschlag in die Queue (Story D4). */
+  async confirmRecommendation(partyId: string, trackId: string): Promise<boolean> {
+    await this.ensureInitialized();
+    const manager = await this.getParty(partyId);
+    if (!manager) return false;
+
+    const confirmed = await manager.confirmRecommendation(trackId);
+    if (confirmed) await this.persistParty(partyId);
+    return confirmed;
+  }
+
+  /** Verwirft einen wartenden Vorschlag (Story D4). */
+  async rejectRecommendation(partyId: string, trackId: string): Promise<boolean> {
+    await this.ensureInitialized();
+    const manager = await this.getParty(partyId);
+    if (!manager) return false;
+
+    const rejected = manager.rejectRecommendation(trackId);
+    if (rejected) await this.persistParty(partyId);
+    return rejected;
   }
 
   async createParty(input?: {

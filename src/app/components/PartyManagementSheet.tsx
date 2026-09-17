@@ -4,6 +4,7 @@ import {
   TRANSITION_PROFILE_OPTIONS,
   type PartySettings,
 } from "@/app/lib/party/settings";
+import type { PartyTrack } from "@/app/lib/providers/types";
 
 interface PartyListItem {
   partyId: string;
@@ -29,6 +30,9 @@ interface PartyManagementSheetProps {
   onDeleteParty: (partyId: string) => Promise<void>;
   isBusy: boolean;
   saveMessage: string | null;
+  /** Story D4: Auto-Fill-Vorschläge, die im Vorschlagsmodus auf Bestätigung warten. */
+  pendingRecommendations: PartyTrack[];
+  onRecommendationAction: (trackId: string, action: "confirm" | "reject") => Promise<void>;
 }
 
 export default function PartyManagementSheet({
@@ -46,6 +50,8 @@ export default function PartyManagementSheet({
   onDeleteParty,
   isBusy,
   saveMessage,
+  pendingRecommendations,
+  onRecommendationAction,
 }: PartyManagementSheetProps) {
   if (!isOpen) return null;
 
@@ -115,6 +121,25 @@ export default function PartyManagementSheet({
                 className="h-4 w-4 accent-green-500"
               />
             </label>
+
+            {pendingSettings.autoFillEnabled && (
+              <label className="block">
+                <span className="text-sm text-gray-300">Automatikmodus</span>
+                <select
+                  value={pendingSettings.autoFillMode}
+                  onChange={(e) =>
+                    onPendingSettingsChange({
+                      ...pendingSettings,
+                      autoFillMode: e.target.value === "suggest" ? "suggest" : "auto",
+                    })
+                  }
+                  className="mt-1 w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-gray-100"
+                >
+                  <option value="auto">Automatisch einreihen</option>
+                  <option value="suggest">Erst als Vorschlag, ich bestätige</option>
+                </select>
+              </label>
+            )}
 
             <label className="block">
               <span className="text-sm text-gray-300">Zielgröße Queue</span>
@@ -275,6 +300,44 @@ export default function PartyManagementSheet({
             </button>
             {saveMessage && <p className="text-xs text-gray-400">{saveMessage}</p>}
           </div>
+
+          {/* Story D4: Vorschläge aus dem Vorschlagsmodus, einzeln bestätigen oder verwerfen. */}
+          {pendingRecommendations.length > 0 && (
+            <div className="space-y-2 rounded-lg border border-neutral-800 bg-neutral-900 p-3">
+              <p className="text-sm font-medium text-gray-100">
+                Vorschläge zur Bestätigung ({pendingRecommendations.length})
+              </p>
+              <div className="space-y-2">
+                {pendingRecommendations.map((track) => (
+                  <div
+                    key={track.id}
+                    className="flex items-center justify-between gap-2 rounded-md border border-neutral-800 bg-neutral-950 px-2.5 py-2"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm text-gray-200">{track.name}</p>
+                      <p className="truncate text-xs text-gray-500">{track.artist}</p>
+                    </div>
+                    <div className="flex flex-shrink-0 gap-1.5">
+                      <button
+                        onClick={() => void onRecommendationAction(track.id, "confirm")}
+                        disabled={isBusy}
+                        className="min-h-8 rounded bg-green-700 px-2.5 py-1 text-xs text-white hover:bg-green-800 disabled:opacity-60"
+                      >
+                        ✓ Übernehmen
+                      </button>
+                      <button
+                        onClick={() => void onRecommendationAction(track.id, "reject")}
+                        disabled={isBusy}
+                        className="min-h-8 rounded bg-neutral-800 px-2.5 py-1 text-xs text-gray-300 hover:bg-neutral-700 disabled:opacity-60"
+                      >
+                        ✕ Verwerfen
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Kein eigener Scroller mehr — die Liste scrollt mit dem Sheet.
               Verschachtelte Scrollbereiche fühlen sich auf Touch träge an. */}

@@ -44,6 +44,9 @@ export async function GET(req: Request) {
       isActive: state.isActive,
       currentTrack: state.currentTrack ?? null,
       queue: state.queue ?? [],
+      // Story D4: Auto-Fill-Vorschläge, die im Vorschlagsmodus auf
+      // Bestätigung durch den Gastgeber warten.
+      pendingRecommendations: state.pendingRecommendations ?? [],
     });
   } catch (err) {
     console.error("Fehler beim Abrufen des Party-Status:", err);

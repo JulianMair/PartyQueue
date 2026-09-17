@@ -51,6 +51,12 @@ export interface PartyState {
    * Party-Dokumente dieses Feld noch nicht haben.
    */
   playedTracks?: PlayedTrackEntry[];
+  /**
+   * Automatisch ausgewählte Titel, die im Vorschlagsmodus (Story D4,
+   * PartySettings.autoFillMode === "suggest") auf Bestätigung warten,
+   * statt direkt in die Queue zu wandern.
+   */
+  pendingRecommendations?: PartyTrack[];
 }
 
 export type VoteResultStatus =
@@ -91,6 +97,12 @@ export class PartyManager extends EventEmitter {
    * neu berechnet, ebenfalls nicht persistiert.
    */
   private partyTrend: PartyTrend | null = null;
+  /**
+   * Vorschläge aus dem Auto-Fill, die im Vorschlagsmodus (Story D4) auf
+   * Bestätigung durch den Gastgeber warten. Persistiert wie playedTracks,
+   * damit sie einen Neustart überstehen statt zu verschwinden.
+   */
+  private pendingRecommendations: PartyTrack[] = [];
   private suggestionThreshold = 3;
   private fadeDurationSeconds = 0;
   private transitionProfile: TransitionProfile = "balanced";
@@ -151,6 +163,15 @@ export class PartyManager extends EventEmitter {
     if (initialState?.currentTrack?.id) {
       this.playedTrackIds.add(initialState.currentTrack.id);
     }
+
+    // Vorschläge aus dem Vorschlagsmodus (Story D4) zurücklesen. Genauso
+    // defensiv wie playedTracks: kaputte oder fehlende Einträge werden
+    // übersprungen statt die Party am Laden zu hindern.
+    this.pendingRecommendations = Array.isArray(initialState?.pendingRecommendations)
+      ? initialState.pendingRecommendations.filter(
+          (track): track is PartyTrack => Boolean(track?.id && track?.uri)
+        )
+      : [];
     // Nach einem Neustart ist bereits Historie da, aber noch kein Profil im
     // Speicher — einmalig im Hintergrund nachrechnen, damit getPartyProfile()
     // nicht erst auf den nächsten gespielten Titel warten muss.
@@ -177,6 +198,7 @@ export class PartyManager extends EventEmitter {
       // Mitliefern, damit die Historie beim Speichern der Party mitgeschrieben
       // wird — der Aufrufer nimmt getState() als Snapshot für die Datenbank.
       playedTracks: this.playedTracks,
+      pendingRecommendations: this.pendingRecommendations,
     };
   }
 
@@ -437,6 +459,72 @@ export class PartyManager extends EventEmitter {
     this.emit("stateChanged", this.state);
 
     console.log(`[PartyManager] ${partyTracks.length} Tracks hinzugefügt`);
+  }
+
+  /**
+   * Gibt die aktuell wartenden Auto-Fill-Vorschläge zurück (Story D4).
+   * Als Kopie, damit Aufrufer die interne Liste nicht versehentlich ändern.
+   */
+  getPendingRecommendations(): PartyTrack[] {
+    return [...this.pendingRecommendations];
+  }
+
+  /**
+   * Legt automatisch ausgewählte Titel als Vorschlag ab, statt sie direkt
+   * einzureihen (Story D4, Vorschlagsmodus). Dieselbe Ausschluss-Logik wie
+   * addTracks: keine Duplikate zur Queue, zum aktuellen Song oder zu schon
+   * wartenden Vorschlägen.
+   */
+  addPendingRecommendations(tracks: Track[]) {
+    const existingIds = new Set(
+      this.state.queue
+        .map((track) => track.id)
+        .concat(this.state.currentTrack?.id ?? [])
+        .concat(this.pendingRecommendations.map((track) => track.id))
+    );
+    const batchIds = new Set<string>();
+    const validTracks = tracks.filter((track) => {
+      if (!track?.id || !track?.uri) return false;
+      if (existingIds.has(track.id)) return false;
+      if (batchIds.has(track.id)) return false;
+      batchIds.add(track.id);
+      return true;
+    });
+    if (validTracks.length === 0) return;
+
+    this.pendingRecommendations.push(
+      ...validTracks.map((track) => this.toPartyTrack(track))
+    );
+    this.bumpVersion();
+    this.emit("stateChanged", this.state);
+    console.log(`[PartyManager] ${validTracks.length} Vorschläge abgelegt`);
+  }
+
+  /**
+   * Übernimmt einen wartenden Vorschlag in die Queue (Story D4).
+   * Nutzt addTracks, damit Vorschlag und normal hinzugefügter Titel exakt
+   * gleich behandelt werden (frischer addedAt-Zeitstempel, Duplikat-Check).
+   */
+  async confirmRecommendation(trackId: string): Promise<boolean> {
+    const index = this.pendingRecommendations.findIndex((track) => track.id === trackId);
+    if (index < 0) return false;
+
+    const [track] = this.pendingRecommendations.splice(index, 1);
+    await this.addTracks([track]);
+    this.bumpVersion();
+    this.emit("stateChanged", this.state);
+    return true;
+  }
+
+  /** Verwirft einen wartenden Vorschlag, ohne ihn einzureihen (Story D4). */
+  rejectRecommendation(trackId: string): boolean {
+    const index = this.pendingRecommendations.findIndex((track) => track.id === trackId);
+    if (index < 0) return false;
+
+    this.pendingRecommendations.splice(index, 1);
+    this.bumpVersion();
+    this.emit("stateChanged", this.state);
+    return true;
   }
 
   /** GANZE PLAYLIST ÜBER PROVIDER EINLESEN UND INTERN EINREIHEN */

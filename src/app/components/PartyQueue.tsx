@@ -61,6 +61,8 @@ export default function PartyQueue() {
   const { partyId, setPartyId, isPartyActive, setIsPartyActive } = useParty();
   const [showQr, setShowQr] = useState(false);
   const [queue, setQueue] = useState<PartyTrack[]>([]);
+  // Story D4: Auto-Fill-Vorschläge, die im Vorschlagsmodus auf Bestätigung warten.
+  const [pendingRecommendations, setPendingRecommendations] = useState<PartyTrack[]>([]);
   const [parties, setParties] = useState<PartyListItem[]>([]);
   const [newPartyName, setNewPartyName] = useState("");
   const [isBusy, setIsBusy] = useState(false);
@@ -205,6 +207,9 @@ export default function PartyQueue() {
       if (res.ok) {
         const data = await res.json();
         setQueue(data.queue);
+        setPendingRecommendations(
+          Array.isArray(data.pendingRecommendations) ? data.pendingRecommendations : []
+        );
       }
     };
 
@@ -215,6 +220,26 @@ export default function PartyQueue() {
 
   const handleShowQr = () => setShowQr((prev) => !prev);
   const closeTrackMenu = () => setOpenTrackMenu(null);
+
+  // Story D4: Vorschlag aus dem Vorschlagsmodus übernehmen oder verwerfen.
+  const handleRecommendationAction = async (trackId: string, action: "confirm" | "reject") => {
+    if (!partyId) return;
+    try {
+      const res = await fetch("/api/party/recommendations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ partyId, trackId, action }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (Array.isArray(data.queue)) setQueue(data.queue);
+      if (Array.isArray(data.pendingRecommendations)) {
+        setPendingRecommendations(data.pendingRecommendations);
+      }
+    } catch (err) {
+      console.error("Fehler beim Bearbeiten des Vorschlags:", err);
+    }
+  };
 
   const handleSaveSettings = async () => {
     if (!partyId) return;
@@ -659,6 +684,8 @@ export default function PartyQueue() {
         onDeleteParty={handleDeleteParty}
         isBusy={isBusy}
         saveMessage={settingsSaveMessage}
+        pendingRecommendations={pendingRecommendations}
+        onRecommendationAction={handleRecommendationAction}
       />
 
       {/* QR Modal */}
