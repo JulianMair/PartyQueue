@@ -56,13 +56,13 @@ Startzustand. Beim Arbeiten verschiebst du die Karten zwischen den Spalten.
 - G1 · Technische Dokumentation · 3 SP
 
 ### Ready
-F1 · Automatisierte Tests · 5 SP
+_(leer)_
 
 ### In Progress  (WIP Limit: 1)
 _(leer)_
 
 ### In Review  (WIP Limit: 2)
-_(leer)_
+- F1 · Automatisierte Tests · 5 SP
 
 ### Done
 - A1 · Gespielte Titel erfassen · 3 SP
@@ -106,3 +106,4 @@ _(leer)_
 | 2026-09-17 | D4 gebaut: neue Einstellung `autoFillMode` ("auto"/"suggest"). Im Vorschlagsmodus legt PartyRegistry ausgewaehlte Auto-Fill-Titel als `pendingRecommendations` am PartyManager ab statt sie einzureihen (neue Methoden addPendingRecommendations/confirmRecommendation/rejectRecommendation, persistiert wie playedTracks). Neue Route `/api/party/recommendations` (confirm/reject), Party-Verwaltung zeigt Vorschlagsliste mit ✓/✕. Zielgroessen-Zaehlung beruecksichtigt wartende Vorschlaege, damit nicht bei jedem Zyklus weiter nachgelegt wird. Gast-Song-Vorschlaege (bestehende Suggestion-Funktion) unangetastet. 13 Pruefungen der neuen PartyManager-Methoden (inkl. Persistenz-Rundlauf). | D4 pruefen lassen — auch hier ein kurzer Betriebstest empfohlen (Vorschlagsmodus aktivieren, Vorschlag bestaetigen/verwerfen), da PartyRegistry-Orchestrierung betroffen ist. | Die neue PartyRegistry-Verzweigung (applySelectedTracks/countTowardsTarget) selbst nur per Code-Review geprueft, nicht live — Verhalten von D3 ist als Regressionstest mit abgedeckt (Pruefungen bestehen weiter). |
 | 2026-09-17 | D4 nach eigener Prüfung nach Done verschoben. | E2 (Einstellungen für den Automatikmodus) aus Ready starten. | — |
 | 2026-09-17 | E2 ohne neuen Code direkt nach Done verschoben: "Schwelle" (targetQueueSize) und "Modus" (autoFillMode) sind bereits einstellbar und werden aktiv von PartyRegistry.seedQueueFromSettings/runAutoFillCycle verwendet (Stories D3/D4) — kein Karteileichen-Feld, direkt im Empfehlungs-Pfad verdrahtet. | F1 (Automatisierte Tests) aus Ready starten. | — |
+| 2026-09-17 | F1 gebaut: Vitest 2 als Dev-Dependency (kompatibel zu vorhandenem @types/node ^20), `npm test`/`npm run test:watch`. 61 Tests in 7 Dateien — dauerhafte Fassung aller bisherigen Ad-hoc-Prüfungen für die reinen Funktionen aus A1/A2, C1, C2, D1 (nur pickTrendingArtistIds/mergeCandidatePools), D2, D3/D4, plus settings.ts. Orchestratoren mit echtem I/O (buildCandidatePool, rankCandidatePool, Provider, PartyManager/PartyRegistry) bewusst nicht getestet — brauchen echte API/DB-Anbindung. `npm test` und `tsc --noEmit` laufen beide fehlerfrei. | F1 prüfen lassen. | `npm audit` zeigt Schwachstellen in transitiven Vitest-Abhängigkeiten (Dev-only) — nicht behoben, nur zur Kenntnis. |
