@@ -52,19 +52,18 @@ Summe: 15 Stories, 56 Story Points. Prio ist Planung, keine Zusage. Die tatsäch
 Startzustand. Beim Arbeiten verschiebst du die Karten zwischen den Spalten.
 
 ### Backlog
-- E2 · Einstellungen für den Automatikmodus · 2 SP
 - F1 · Automatisierte Tests · 5 SP
 - F2 · Nutzerevaluation · 3 SP
 - G1 · Technische Dokumentation · 3 SP
 
 ### Ready
-_(leer)_
+E2 · Einstellungen für den Automatikmodus · 2 SP
 
 ### In Progress  (WIP Limit: 1)
 _(leer)_
 
 ### In Review  (WIP Limit: 2)
-- D4 · Vorschlagsmodus statt Automatik · 2 SP
+_(leer)_
 
 ### Done
 - A1 · Gespielte Titel erfassen · 3 SP
@@ -77,6 +76,7 @@ _(leer)_
 - D1 · Kandidaten erzeugen · 5 SP
 - D2 · Kandidaten ranken · 5 SP
 - D3 · Automatisches Auffüllen · 3 SP
+- D4 · Vorschlagsmodus statt Automatik · 2 SP
 
 ---
 
@@ -104,3 +104,4 @@ _(leer)_
 | 2026-09-16 | D3 nach eigener Prüfung nach Done verschoben. | D4 (Vorschlagsmodus statt Automatik) aus Ready starten. | — |
 | 2026-09-16 | Ausserhalb der Feature-Stories: Bug in party/[id]/vote/page.tsx behoben (Vorexistent, nicht durch dieses Feature verursacht) — Race Condition zwischen optimistischem Vote-Update und dem 1,5s-Polling liess Votes kurz nach dem Klick wieder auf den alten Stand zurueckspringen. Fix: kurzes Ignorierfenster (lastLocalVoteAtRef, 2,5s) fuer Poll-Antworten nach einem eigenen Vote. Dev-Server neu gestartet. | D4 aus Ready starten. | Testete im laufenden Dev-Server unter staendigen Fast-Refresh-Zyklen unzuverlaessig — Server-Neustart hat das behoben, Julian prueft den Fix selbst. |
 | 2026-09-17 | D4 gebaut: neue Einstellung `autoFillMode` ("auto"/"suggest"). Im Vorschlagsmodus legt PartyRegistry ausgewaehlte Auto-Fill-Titel als `pendingRecommendations` am PartyManager ab statt sie einzureihen (neue Methoden addPendingRecommendations/confirmRecommendation/rejectRecommendation, persistiert wie playedTracks). Neue Route `/api/party/recommendations` (confirm/reject), Party-Verwaltung zeigt Vorschlagsliste mit ✓/✕. Zielgroessen-Zaehlung beruecksichtigt wartende Vorschlaege, damit nicht bei jedem Zyklus weiter nachgelegt wird. Gast-Song-Vorschlaege (bestehende Suggestion-Funktion) unangetastet. 13 Pruefungen der neuen PartyManager-Methoden (inkl. Persistenz-Rundlauf). | D4 pruefen lassen — auch hier ein kurzer Betriebstest empfohlen (Vorschlagsmodus aktivieren, Vorschlag bestaetigen/verwerfen), da PartyRegistry-Orchestrierung betroffen ist. | Die neue PartyRegistry-Verzweigung (applySelectedTracks/countTowardsTarget) selbst nur per Code-Review geprueft, nicht live — Verhalten von D3 ist als Regressionstest mit abgedeckt (Pruefungen bestehen weiter). |
+| 2026-09-17 | D4 nach eigener Prüfung nach Done verschoben. | E2 (Einstellungen für den Automatikmodus) aus Ready starten. | — |
