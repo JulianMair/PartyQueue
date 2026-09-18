@@ -52,10 +52,10 @@ Summe: 15 Stories, 56 Story Points. Prio ist Planung, keine Zusage. Die tatsäch
 Startzustand. Beim Arbeiten verschiebst du die Karten zwischen den Spalten.
 
 ### Backlog
-- G1 · Technische Dokumentation · 3 SP
+_(leer)_
 
 ### Ready
-F2 · Nutzerevaluation · 3 SP
+G1 · Technische Dokumentation · 3 SP
 
 ### In Progress  (WIP Limit: 1)
 _(leer)_
@@ -77,6 +77,7 @@ _(leer)_
 - D4 · Vorschlagsmodus statt Automatik · 2 SP
 - E2 · Einstellungen für den Automatikmodus · 2 SP
 - F1 · Automatisierte Tests · 5 SP
+- F2 · Nutzerevaluation · 3 SP
 
 ---
 
@@ -108,3 +109,4 @@ _(leer)_
 | 2026-09-17 | E2 ohne neuen Code direkt nach Done verschoben: "Schwelle" (targetQueueSize) und "Modus" (autoFillMode) sind bereits einstellbar und werden aktiv von PartyRegistry.seedQueueFromSettings/runAutoFillCycle verwendet (Stories D3/D4) — kein Karteileichen-Feld, direkt im Empfehlungs-Pfad verdrahtet. | F1 (Automatisierte Tests) aus Ready starten. | — |
 | 2026-09-17 | F1 gebaut: Vitest 2 als Dev-Dependency (kompatibel zu vorhandenem @types/node ^20), `npm test`/`npm run test:watch`. 61 Tests in 7 Dateien — dauerhafte Fassung aller bisherigen Ad-hoc-Prüfungen für die reinen Funktionen aus A1/A2, C1, C2, D1 (nur pickTrendingArtistIds/mergeCandidatePools), D2, D3/D4, plus settings.ts. Orchestratoren mit echtem I/O (buildCandidatePool, rankCandidatePool, Provider, PartyManager/PartyRegistry) bewusst nicht getestet — brauchen echte API/DB-Anbindung. `npm test` und `tsc --noEmit` laufen beide fehlerfrei. | F1 prüfen lassen. | `npm audit` zeigt Schwachstellen in transitiven Vitest-Abhängigkeiten (Dev-only) — nicht behoben, nur zur Kenntnis. |
 | 2026-09-18 | F1 nach eigener Prüfung nach Done verschoben. | F2 (Nutzerevaluation) aus Ready starten. | — |
+| 2026-09-18 | F2 ohne neuen Code erledigt: simulierter Mehr-Nutzer-Durchlauf auf der laufenden Party über die echten APIs (vier Client-IDs, gleichzeitiges Voting inkl. Duplikat-/Unvote-Prüfung, ein voller Bestätigen/Verwerfen-Durchlauf für D4). Empfehlungen fachlich als konsistent zur Party-Richtung eingeschätzt (angesagter Künstler + bereits vorkommender Mashup-Artist). Julian hat auf die zusätzliche 👍/👎-Bewertungsfunktion verzichtet, direkt nach Done. | G1 (Technische Dokumentation) aus Ready starten. | Echte Songwiedergabe (playedTracks) konnte ohne verbundenes Spotify-Gerät nicht simuliert werden — Profil/Trend basieren auf der bereits vorhandenen echten Historie, nicht auf von mir erzeugten Plays. |
